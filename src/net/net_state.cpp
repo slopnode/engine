@@ -1,5 +1,6 @@
 #include "net/net_state.hpp"
 
+#include "core/sim_clock.hpp"
 #include "map/thing.hpp"
 #include "map/thing_def_registry.hpp"
 
@@ -118,6 +119,20 @@ void resetNetState(flecs::world& world) {
         player.values = defaultsFor(NetScope{NetScopeKind::Player, {}});
     }
     store.session = defaultsFor(NetScope{NetScopeKind::Session, {}});
+}
+
+void resetNetSessionState(flecs::world& world) {
+    world.remove<SimRemote>();
+    world.remove<SimShared>();
+    world.remove<NetSessionLimits>();
+    world.set<NetEventQueue>({});
+    world.set<NetEffectQueue>({});
+    world.set<NetPrediction>({});
+    world.set<NetIdentity>({});
+    NetStore store{};
+    store.players.push_back(NetPlayerRecord{kLocalNetPlayerId, defaultsFor(NetScope{NetScopeKind::Player, {}})});
+    store.session = defaultsFor(NetScope{NetScopeKind::Session, {}});
+    world.set<NetStore>(std::move(store));
 }
 
 void addNetPlayer(flecs::world& world, std::string_view id) {

@@ -46,6 +46,8 @@ UiSettings loadUiSettings(const std::filesystem::path& settingsFilePath) {
         const std::string value = trim(trimmed.substr(eq + 1));
         if (key == "theme" && !value.empty()) {
             ui.theme = value;
+        } else if (key == "join_address" && !value.empty()) {
+            ui.joinAddress = value;
         }
     }
     return ui;

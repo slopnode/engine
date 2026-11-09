@@ -6,6 +6,7 @@
 #include "net/transport.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <map>
@@ -572,6 +573,25 @@ bool NetSchema::addSessionKinds(
                 }
                 kind.minPlayers = static_cast<int>(low);
                 kind.maxPlayers = static_cast<int>(high);
+            } else if (key == "title") {
+                const s7_pointer rest = s7_cdr(option);
+                if (!s7_is_pair(rest) || !s7_is_string(s7_car(rest)) || !s7_is_null(sc, s7_cdr(rest)) ||
+                    s7_string_length(s7_car(rest)) == 0 || s7_string_length(s7_car(rest)) > 64) {
+                    error = "title needs one string of 1 to 64 characters";
+                    break;
+                }
+                kind.title = s7_string(s7_car(rest));
+            } else if (key == "maps") {
+                for (s7_pointer map = s7_cdr(option); s7_is_pair(map); map = s7_cdr(map)) {
+                    if (!s7_is_string(s7_car(map)) || s7_string_length(s7_car(map)) == 0) {
+                        error = "maps needs map names as strings";
+                        break;
+                    }
+                    kind.maps.emplace_back(s7_string(s7_car(map)));
+                }
+                if (error.empty() && kind.maps.empty()) {
+                    error = "maps needs at least one map name";
+                }
             } else if (std::find_if(std::begin(kLaterOptions), std::end(kLaterOptions), [&](const char* name) {
                            return key == name;
                        }) == std::end(kLaterOptions)) {
@@ -585,6 +605,10 @@ bool NetSchema::addSessionKinds(
             messages.push_back(package + ": session kind " + kind.name + " " + error);
             ok = false;
             continue;
+        }
+        if (kind.title.empty()) {
+            kind.title = kind.name;
+            kind.title[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(kind.title[0])));
         }
         sessionKinds_.push_back(std::move(kind));
     }

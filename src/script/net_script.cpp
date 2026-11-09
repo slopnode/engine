@@ -2,6 +2,7 @@
 
 #include "core/log.hpp"
 #include "core/sim_clock.hpp"
+#include "game/net_control.hpp"
 #include "net/net_rewind.hpp"
 #include "net/net_state.hpp"
 #include "script/player_target.hpp"
@@ -380,6 +381,103 @@ s7_pointer g_session_set_max_players(s7_scheme* sc, s7_pointer args) {
     return s7_make_integer(sc, limits.maxPlayers);
 }
 
+s7_pointer netScriptError(s7_scheme* sc, const char* caller, const std::string& message) {
+    return s7_error(sc, s7_make_symbol(sc, caller),
+                    s7_list(sc, 1, s7_make_string(sc, (std::string(caller) + ": " + message).c_str())));
+}
+
+s7_pointer g_net_host(s7_scheme* sc, s7_pointer args) {
+    ArgReader in(sc, "net-host", args);
+    NetControlRequest request;
+    request.kind = NetControlKind::Host;
+    request.address = std::to_string(kDefaultNetPort);
+    if (in.more() && in.peek() != s7_f(sc)) {
+        if (in.nextIsInteger()) {
+            const s7_int port = in.exactInteger("port");
+            if (port < 1 || port > 65535) {
+                return netScriptError(sc, "net-host", "port must be between 1 and 65535");
+            }
+            request.address = std::to_string(port);
+        } else {
+            request.address = in.string("port or host:port");
+        }
+    } else if (in.more()) {
+        in.skip();
+    }
+    if (in.more() && in.peek() != s7_f(sc)) {
+        request.session = in.name("session kind");
+    } else if (in.more()) {
+        in.skip();
+    }
+    if (in.more() && in.peek() != s7_f(sc)) {
+        request.map = in.string("map");
+    } else if (in.more()) {
+        in.skip();
+    }
+    if (!in.ok()) {
+        return in.error();
+    }
+    if (!request.session.empty() && netSchema().findSessionKind(request.session) == nullptr) {
+        return netScriptError(sc, "net-host", "session kind " + request.session + " isn't declared in *net-sessions*");
+    }
+    requestNetControl(std::move(request));
+    return s7_t(sc);
+}
+
+s7_pointer g_net_join(s7_scheme* sc, s7_pointer args) {
+    ArgReader in(sc, "net-join", args);
+    std::string address = in.string("host:port");
+    if (!in.ok()) {
+        return in.error();
+    }
+    if (address.empty()) {
+        return netScriptError(sc, "net-join", "needs an address such as 192.168.1.10:27960");
+    }
+    if (address.find(':') == std::string::npos) {
+        address += ":" + std::to_string(kDefaultNetPort);
+    }
+    NetControlRequest request;
+    request.kind = NetControlKind::Join;
+    request.address = std::move(address);
+    requestNetControl(std::move(request));
+    return s7_t(sc);
+}
+
+s7_pointer g_net_leave(s7_scheme* sc, s7_pointer) {
+    requestNetControl(NetControlRequest{});
+    return s7_t(sc);
+}
+
+s7_pointer g_net_status(s7_scheme* sc, s7_pointer) {
+    if (g_netWorld == nullptr || !g_netWorld->has<NetStatus>()) {
+        return s7_make_symbol(sc, "offline");
+    }
+    return s7_make_symbol(sc, netStatusName(g_netWorld->get<NetStatus>().kind));
+}
+
+s7_pointer g_net_error(s7_scheme* sc, s7_pointer) {
+    if (g_netWorld == nullptr || !g_netWorld->has<NetStatus>() || g_netWorld->get<NetStatus>().error.empty()) {
+        return s7_f(sc);
+    }
+    return s7_make_string(sc, g_netWorld->get<NetStatus>().error.c_str());
+}
+
+s7_pointer g_session_kinds(s7_scheme* sc, s7_pointer) {
+    s7_pointer out = s7_nil(sc);
+    const std::vector<NetSessionKind>& kinds = netSchema().sessionKinds();
+    for (auto kind = kinds.rbegin(); kind != kinds.rend(); ++kind) {
+        s7_pointer maps = s7_nil(sc);
+        for (auto map = kind->maps.rbegin(); map != kind->maps.rend(); ++map) {
+            maps = s7_cons(sc, s7_make_string(sc, map->c_str()), maps);
+        }
+        out = s7_cons(sc,
+                      s7_list(sc, 5, s7_make_symbol(sc, kind->name.c_str()), s7_make_string(sc, kind->title.c_str()),
+                              s7_make_integer(sc, kind->minPlayers), s7_make_integer(sc, kind->maxPlayers), maps),
+                      out);
+    }
+    return out;
+}
+
 s7_pointer g_enter_lag_compensation(s7_scheme* sc, s7_pointer) {
     if (!requireCap(sc, ScriptCap::WorldMutate)) {
         return s7_error(sc, s7_make_symbol(sc, "with-lag-compensation"),
@@ -416,6 +514,12 @@ constexpr SchemeBinding kNetBindings[] = {
     {"session-kind", g_session_kind, 0, 0, false, "(session-kind)", ScriptCap::ReadWorld},
     {"session-max-players", g_session_max_players, 0, 0, false, "(session-max-players)", ScriptCap::ReadWorld},
     {"session-set-max-players!", g_session_set_max_players, 1, 0, false, "(session-set-max-players! n)", ScriptCap::MapControl},
+    {"session-kinds", g_session_kinds, 0, 0, false, "(session-kinds)", ScriptCap::ReadWorld},
+    {"net-host", g_net_host, 0, 3, false, "(net-host [port] [session-kind] [map])", ScriptCap::MapControl},
+    {"net-join", g_net_join, 1, 0, false, "(net-join address)", ScriptCap::MapControl},
+    {"net-leave", g_net_leave, 0, 0, false, "(net-leave)", ScriptCap::MapControl},
+    {"net-status", g_net_status, 0, 0, false, "(net-status)", ScriptCap::ReadWorld},
+    {"net-error", g_net_error, 0, 0, false, "(net-error)", ScriptCap::ReadWorld},
 };
 
 } // namespace

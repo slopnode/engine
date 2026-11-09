@@ -109,6 +109,8 @@ inline constexpr int kMaxNetPlayers = 256;
 
 struct NetSessionKind {
     std::string name;
+    std::string title;
+    std::vector<std::string> maps;
     int minPlayers = 1;
     int maxPlayers = 8;
 };

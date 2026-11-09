@@ -12,6 +12,8 @@ struct SimSystem {};
 
 struct SimRemote {};
 
+struct SimShared {};
+
 struct Headless {};
 
 struct CosmeticSystem {};

@@ -253,6 +253,7 @@ add_executable(slopengine
     src/script/player_target.cpp
     src/script/net_script.cpp
     src/game/game_state.cpp
+    src/game/net_control.cpp
     src/game/package_cli.cpp
     src/input/action_registry.cpp
     src/input/bind_code.cpp

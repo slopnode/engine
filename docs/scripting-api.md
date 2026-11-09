@@ -410,6 +410,40 @@ Sets how many players the session takes, clamped between 1 and the session kind'
   n : integer?) ↵ (or integer? #f)
 </code></pre>
 
+### session-kinds {#session-kinds}
+Returns every declared session kind as `(name title min-players max-players maps)`, in declaration order, where `maps` is the kind's map list or empty.
+<pre><code class="language-scheme">(session-kinds) ↵ (listof list?)
+</code></pre>
+
+### net-host {#net-host}
+Starts hosting at the start of the next frame, as the Host Game menu does. Leaves any current session first, then listens on `port`, 27960 by default, which can also be a `"host:port"` string, hosts `session-kind`, the first declared kind by default, and loads `map` fresh. Without a map it loads the kind's first map, then the current map, then the first map the packages list. Pass `#f` to skip an argument. Raises an error for an undeclared kind or a port out of range. A port that is already taken shows up as `net-error`. Needs map control.
+<pre><code class="language-scheme">(net-host
+  [port : (or integer? string? #f)]
+  [session-kind : (or symbol? string? #f)]
+  [map : (or string? #f)]) ↵ #t
+</code></pre>
+
+### net-join {#net-join}
+Joins the server at `address` at the start of the next frame, leaving any current session first. The port defaults to 27960. The server sends its map once the hello is accepted. Needs map control.
+<pre><code class="language-scheme">(net-join
+  address : string?) ↵ #t
+</code></pre>
+
+### net-leave {#net-leave}
+Leaves the current session at the start of the next frame and returns to the title. A host's clients are told the server is shutting down. Every declared field goes back to its default. Needs map control.
+<pre><code class="language-scheme">(net-leave) ↵ #t
+</code></pre>
+
+### net-status {#net-status}
+Returns `'offline`, `'hosting`, `'connecting` or `'connected`.
+<pre><code class="language-scheme">(net-status) ↵ symbol?
+</code></pre>
+
+### net-error {#net-error}
+Returns why the last host, join or connection failed, such as `"no response"` or `"server full"`, or `#f`. The next `net-host`, `net-join` or `net-leave` clears it.
+<pre><code class="language-scheme">(net-error) ↵ (or string? #f)
+</code></pre>
+
 ## Input {#input}
 
 ### action-down? {#action-down}

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/sim_clock.hpp"
 #include "input/input_context.hpp"
 
 #include <flecs.h>
@@ -36,7 +37,7 @@ inline bool isMenu(const flecs::world& world) {
 }
 
 inline bool isSimulationPaused(const flecs::world& world) {
-    if (!world.has<InputContextStack>()) {
+    if (!world.has<InputContextStack>() || world.has<SimShared>() || world.has<SimRemote>()) {
         return false;
     }
     const InputContextStack& contexts = world.get<InputContextStack>();

@@ -20,7 +20,7 @@ window.SLOPENGINE_SCHEME_FNS = [
   "fp-set-sprite-rotation", "fp-set-sprite-scale", "fp-set-weapon-hidden!",
   "fp-spawn-light", "fp-sprite-anim-busy?", "fp-sprite-offset", "fp-sprite-pos",
   "fx-light-attach", "fx-light-spawn", "handler-proc", "hbox", "hitscan-actors",
-  "hook-add", "net-get", "net-set!", "net-reset!", "net-save-state", "net-restore-state!", "net-schema-hash", "net-event!", "players", "hud-anchor", "hud-draw-eye", "hud-font", "hud-image", "hud-rect",
+  "hook-add", "net-get", "net-set!", "net-reset!", "net-save-state", "net-restore-state!", "net-schema-hash", "net-event!", "net-host", "net-join", "net-leave", "net-status", "net-error", "session-kinds", "session-kind", "session-max-players", "session-set-max-players!", "players", "hud-anchor", "hud-draw-eye", "hud-font", "hud-image", "hud-rect",
   "hud-text", "hud-text-align", "indent", "input-text", "linescan-world", "list-maps", "los?",
   "main-menu?", "menu-check", "menu-item", "modal", "motored-spawn", "mover-close",
   "mover-close-group", "mover-locked?", "mover-open", "mover-open-group",

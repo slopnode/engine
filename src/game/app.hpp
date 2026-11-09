@@ -3,13 +3,16 @@
 #include "assets/asset_store.hpp"
 #include "audio/audio_world.hpp"
 #include "game/app_config.hpp"
+#include "game/net_control.hpp"
 #include "game/user_settings.hpp"
 #include "net/net_session.hpp"
 #include "physics/physics_world.hpp"
 
 #include <flecs.h>
 
+#include <filesystem>
 #include <memory>
+#include <string>
 
 struct s7_scheme;
 
@@ -43,6 +46,15 @@ private:
     void shutdown();
     void takePendingMapLoad();
     void startNetwork(const std::filesystem::path& settingsFilePath);
+    void openNetSession(
+        const std::string& listenAddress,
+        const std::string& connectAddress,
+        const std::string& sessionKind,
+        int maxPlayers);
+    void closeNetSession();
+    std::string hostMapFor(const NetControlRequest& request) const;
+    void takeNetControl();
+    void updateNetStatus();
     void startBot();
     int runDedicated();
 
@@ -55,6 +67,10 @@ private:
     s7_scheme* scheme_ = nullptr;
     std::unique_ptr<NetSession> net_;
     std::unique_ptr<BotScript> bot_;
+    std::filesystem::path settingsFilePath_;
+    std::string netAddress_;
+    std::string netError_;
+    bool netStopPending_ = false;
     bool running_ = false;
 };
 

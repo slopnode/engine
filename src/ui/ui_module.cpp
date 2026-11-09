@@ -7,6 +7,7 @@
 #include "render/system_perf.hpp"
 #include "core/log.hpp"
 #include "game/game_state.hpp"
+#include "game/net_control.hpp"
 #include "game/user_settings.hpp"
 #include "input/action_registry.hpp"
 #include "input/actions.hpp"
@@ -21,6 +22,7 @@
 #include "map/light_sample.hpp"
 #include "map/nav_graph.hpp"
 #include "map/pvs.hpp"
+#include "net/net_schema.hpp"
 #include "physics/components.hpp"
 #include "physics/physics_module.hpp"
 #include "physics/rigid_mover.hpp"
@@ -182,6 +184,228 @@ void applyControlsDraft(UserSettings& settings, const ControlsSettings& draft) {
     settings.save();
 }
 
+std::string netStatusLine(const NetStatus& status) {
+    switch (status.kind) {
+    case NetStatusKind::Hosting: {
+        const NetSessionKind* kind = netSchema().findSessionKind(status.session);
+        const std::string title = kind != nullptr ? kind->title : status.session;
+        return "Hosting " + title + " on " + status.address + ", " + std::to_string(status.players) + " of " +
+            std::to_string(status.maxPlayers) + " players";
+    }
+    case NetStatusKind::Connecting:
+        return "Connecting to " + status.address;
+    case NetStatusKind::Connected:
+        return "Connected to " + status.address;
+    case NetStatusKind::Offline:
+        break;
+    }
+    return "Offline";
+}
+
+NetStatus currentNetStatus(const flecs::world& world) {
+    return world.has<NetStatus>() ? world.get<NetStatus>() : NetStatus{};
+}
+
+void openHostGame(SettingsUiState& settingsUi) {
+    settingsUi.hostOpen = true;
+    settingsUi.hostPending = false;
+    settingsUi.joinOpen = false;
+}
+
+void openJoinGame(SettingsUiState& settingsUi, const UserSettings& settings) {
+    settingsUi.joinOpen = true;
+    settingsUi.joinPending = false;
+    settingsUi.hostOpen = false;
+    std::snprintf(settingsUi.joinAddress, sizeof(settingsUi.joinAddress), "%s", settings.ui.joinAddress.c_str());
+}
+
+void settleNetWindows(SettingsUiState& settingsUi, const NetStatus& status) {
+    if (settingsUi.hostPending && status.kind == NetStatusKind::Hosting) {
+        settingsUi.hostOpen = false;
+        settingsUi.hostPending = false;
+    }
+    if (settingsUi.joinPending && status.kind == NetStatusKind::Connected) {
+        settingsUi.joinOpen = false;
+        settingsUi.joinPending = false;
+    }
+}
+
+struct HostMapChoice {
+    std::string id;
+    std::string name;
+};
+
+std::vector<HostMapChoice> hostMapChoices(AssetStore& assets, const NetSessionKind& kind) {
+    const std::vector<AssetStore::MapListEntry> maps = assets.listMaps();
+    std::vector<HostMapChoice> out;
+    if (kind.maps.empty()) {
+        for (const AssetStore::MapListEntry& entry : maps) {
+            out.push_back({entry.id, entry.name});
+        }
+        return out;
+    }
+    for (const std::string& id : kind.maps) {
+        const auto found = std::find_if(maps.begin(), maps.end(), [&](const AssetStore::MapListEntry& entry) {
+            return entry.id == id;
+        });
+        out.push_back({id, found != maps.end() ? found->name : id});
+    }
+    return out;
+}
+
+void drawNetError(const std::string& error) {
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{1.0f, 0.45f, 0.4f, 1.0f});
+    ImGui::TextWrapped("%s", error.c_str());
+    ImGui::PopStyleColor();
+}
+
+void drawHostGame(
+    flecs::world world,
+    AssetStore& assets,
+    SettingsUiState& settingsUi,
+    const NetStatus& status,
+    const SlopUiTheme& theme,
+    const SlopUiFonts& fonts) {
+    const std::vector<NetSessionKind>& kinds = netSchema().sessionKinds();
+    if (!settingsUi.hostOpen || kinds.empty()) {
+        return;
+    }
+    ImGui::SetNextWindowSize({420.0f, 0.0f}, ImGuiCond_Always);
+    if (!beginThemedWindow(theme, fonts, &assets, "Host Game", &settingsUi.hostOpen, ImGuiWindowFlags_NoResize)) {
+        ImGui::End();
+        return;
+    }
+    settingsUi.hostSession = std::clamp(settingsUi.hostSession, 0, static_cast<int>(kinds.size()) - 1);
+    const NetSessionKind& current = kinds[static_cast<std::size_t>(settingsUi.hostSession)];
+    if (ImGui::BeginCombo("Game", current.title.c_str())) {
+        for (int i = 0; i < static_cast<int>(kinds.size()); ++i) {
+            const bool selected = i == settingsUi.hostSession;
+            if (ImGui::Selectable(kinds[static_cast<std::size_t>(i)].title.c_str(), selected) && !selected) {
+                settingsUi.hostSession = i;
+                settingsUi.hostMap = 0;
+                settingsUi.hostMaxPlayers = 0;
+            }
+        }
+        ImGui::EndCombo();
+    }
+    const NetSessionKind& kind = kinds[static_cast<std::size_t>(settingsUi.hostSession)];
+    const std::vector<HostMapChoice> maps = hostMapChoices(assets, kind);
+    if (!maps.empty()) {
+        settingsUi.hostMap = std::clamp(settingsUi.hostMap, 0, static_cast<int>(maps.size()) - 1);
+        if (ImGui::BeginCombo("Map", maps[static_cast<std::size_t>(settingsUi.hostMap)].name.c_str())) {
+            for (int i = 0; i < static_cast<int>(maps.size()); ++i) {
+                if (ImGui::Selectable(maps[static_cast<std::size_t>(i)].name.c_str(), i == settingsUi.hostMap)) {
+                    settingsUi.hostMap = i;
+                }
+            }
+            ImGui::EndCombo();
+        }
+    } else {
+        ImGui::TextDisabled("(no maps)");
+    }
+    if (ImGui::InputInt("Port", &settingsUi.hostPort)) {
+        settingsUi.hostPort = std::clamp(settingsUi.hostPort, 1, 65535);
+    }
+    if (settingsUi.hostMaxPlayers <= 0) {
+        settingsUi.hostMaxPlayers = kind.maxPlayers;
+    }
+    if (kind.maxPlayers > kind.minPlayers) {
+        ImGui::SliderInt("Max Players", &settingsUi.hostMaxPlayers, std::max(2, kind.minPlayers), kind.maxPlayers);
+    }
+    settingsUi.hostMaxPlayers = std::clamp(settingsUi.hostMaxPlayers, kind.minPlayers, kind.maxPlayers);
+
+    if (settingsUi.hostPending && status.kind == NetStatusKind::Offline && !status.error.empty()) {
+        drawNetError(status.error);
+    }
+    ImGui::Separator();
+    if (maps.empty()) {
+        ImGui::BeginDisabled();
+    }
+    if (themedButton(theme, fonts, &assets, "Host", {}, true, kDefaultIconSet, "server") && !maps.empty()) {
+        NetControlRequest request;
+        request.kind = NetControlKind::Host;
+        request.address = std::to_string(settingsUi.hostPort);
+        request.session = kind.name;
+        request.map = maps[static_cast<std::size_t>(settingsUi.hostMap)].id;
+        request.maxPlayers = settingsUi.hostMaxPlayers;
+        requestNetControl(std::move(request));
+        settingsUi.hostPending = true;
+        playUiSound(world, UiSoundKind::Confirm);
+    }
+    if (maps.empty()) {
+        ImGui::EndDisabled();
+    }
+    ImGui::End();
+}
+
+void drawJoinGame(
+    flecs::world world,
+    AssetStore& assets,
+    SettingsUiState& settingsUi,
+    UserSettings& settings,
+    const NetStatus& status,
+    const SlopUiTheme& theme,
+    const SlopUiFonts& fonts) {
+    if (!settingsUi.joinOpen) {
+        return;
+    }
+    ImGui::SetNextWindowSize({420.0f, 0.0f}, ImGuiCond_Always);
+    if (!beginThemedWindow(theme, fonts, &assets, "Join Game", &settingsUi.joinOpen, ImGuiWindowFlags_NoResize)) {
+        ImGui::End();
+        return;
+    }
+    const bool connecting = settingsUi.joinPending && status.kind == NetStatusKind::Connecting;
+    if (connecting) {
+        ImGui::BeginDisabled();
+    }
+    const bool entered = ImGui::InputText(
+        "Address", settingsUi.joinAddress, sizeof(settingsUi.joinAddress), ImGuiInputTextFlags_EnterReturnsTrue);
+    if (connecting) {
+        ImGui::EndDisabled();
+    }
+    ImGui::TextDisabled("host:port, the port defaults to %d", kDefaultNetPort);
+    if (connecting) {
+        ImGui::TextUnformatted(netStatusLine(status).c_str());
+    } else if (settingsUi.joinPending && status.kind == NetStatusKind::Offline && !status.error.empty()) {
+        drawNetError(status.error);
+    }
+    ImGui::Separator();
+    if (connecting) {
+        if (themedButton(theme, fonts, &assets, "Cancel", {}, false, kDefaultIconSet, "cancel")) {
+            requestNetControl(NetControlRequest{});
+            settingsUi.joinPending = false;
+            playUiSound(world, UiSoundKind::Back);
+        }
+    } else {
+        std::string address = settingsUi.joinAddress;
+        address.erase(0, address.find_first_not_of(" \t"));
+        address.erase(address.find_last_not_of(" \t") + 1);
+        if (address.empty()) {
+            ImGui::BeginDisabled();
+        }
+        const bool clicked = themedButton(theme, fonts, &assets, "Join", {}, true, kDefaultIconSet, "connect");
+        if (address.empty()) {
+            ImGui::EndDisabled();
+        }
+        if ((clicked || entered) && !address.empty()) {
+            if (address.find(':') == std::string::npos) {
+                address += ":" + std::to_string(kDefaultNetPort);
+            }
+            if (settings.ui.joinAddress != address) {
+                settings.ui.joinAddress = address;
+                settings.save();
+            }
+            NetControlRequest request;
+            request.kind = NetControlKind::Join;
+            request.address = address;
+            requestNetControl(std::move(request));
+            settingsUi.joinPending = true;
+            playUiSound(world, UiSoundKind::Confirm);
+        }
+    }
+    ImGui::End();
+}
+
 void drawPauseMenu(
     flecs::world world,
     AssetStore& assets,
@@ -210,6 +434,14 @@ void drawPauseMenu(
         }
         if (ImGui::IsWindowAppearing()) {
             ImGui::SetItemDefaultFocus();
+        }
+        if (currentNetStatus(world).kind != NetStatusKind::Offline &&
+            themedButton(
+                theme, fonts, &assets, "Leave Game", {-1.0f, theme.buttonHeight}, false, kDefaultIconSet,
+                "disconnect")) {
+            contexts.pop(InputContext::PauseMenu);
+            requestNetControl(NetControlRequest{});
+            playUiSound(world, UiSoundKind::Back);
         }
         callDrawPauseMenu(world);
     }
@@ -497,6 +729,24 @@ void drawMainMenuBar(
                 }
             }
             ImGui::EndMenu();
+        }
+        ImGui::EndMenu();
+    }
+
+    if (!netSchema().sessionKinds().empty() && menu("group", "Multiplayer", true)) {
+        const NetStatus status = currentNetStatus(world);
+        if (item("server", "Host Game...")) {
+            openHostGame(settingsUi);
+        }
+        if (item("connect", "Join Game...")) {
+            openJoinGame(settingsUi, settings);
+        }
+        if (itemState("disconnect", "Leave Game", false, status.kind != NetStatusKind::Offline)) {
+            requestNetControl(NetControlRequest{});
+        }
+        if (status.kind != NetStatusKind::Offline) {
+            ImGui::Separator();
+            ImGui::TextDisabled("%s", netStatusLine(status).c_str());
         }
         ImGui::EndMenu();
     }
@@ -1642,6 +1892,9 @@ void drawUi(flecs::world world) {
         drawScriptingErrorBanner(*assets, theme, fonts);
     }
 
+    const NetStatus netStatus = currentNetStatus(world);
+    settleNetWindows(settingsUi, netStatus);
+
     if (contexts.contains(InputContext::MainMenu) && assets != nullptr) {
         DebugUiState& debugUi = world.get_mut<DebugUiState>();
         const EngineSessionInfo& sessionInfo = world.get<EngineSessionInfo>();
@@ -1651,6 +1904,8 @@ void drawUi(flecs::world world) {
         const bool controlsWasOpen = settingsUi.controlsOpen;
         drawGraphicsSettings(world, *assets, settingsUi, settings, theme, fonts);
         drawControlsSettings(world, *assets, settingsUi, settings, theme, fonts);
+        drawHostGame(world, *assets, settingsUi, netStatus, theme, fonts);
+        drawJoinGame(world, *assets, settingsUi, settings, netStatus, theme, fonts);
         if ((graphicsWasOpen && !settingsUi.graphicsOpen) || (controlsWasOpen && !settingsUi.controlsOpen)) {
             playUiSound(world, UiSoundKind::Back);
         }

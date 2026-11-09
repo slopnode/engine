@@ -148,6 +148,24 @@ void runNetTests() {
         CHECK(hub != nullptr && hub->minPlayers == 1 && hub->maxPlayers == 64);
         CHECK(room != nullptr && room->minPlayers == 2 && room->maxPlayers == 4);
         CHECK(schema.findSessionKind("huge") == nullptr);
+        CHECK(hub != nullptr && hub->title == "Hub" && hub->maps.empty());
+    }
+    {
+        NetSchema schema;
+        std::vector<std::string> messages;
+        CHECK_FALSE(schema.addSessionKinds(
+            sc,
+            evalForm(sc,
+                "'((deathmatch (players 1 16) (title \"Deathmatch\") (maps \"arena\" \"yard\"))"
+                " (untitled (title))"
+                " (nomaps (maps))"
+                " (badmap (maps arena)))"),
+            "game",
+            messages));
+        CHECK_EQ(static_cast<int>(messages.size()), 3);
+        const NetSessionKind* dm = schema.findSessionKind("deathmatch");
+        CHECK(dm != nullptr && dm->title == "Deathmatch");
+        CHECK(dm != nullptr && (dm->maps == std::vector<std::string>{"arena", "yard"}));
     }
     {
         NetSchema schema;

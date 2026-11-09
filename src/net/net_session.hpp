@@ -91,6 +91,7 @@ public:
     const SecureKey& publicKey() const { return transport_->publicKey(); }
 
     void registerSystems();
+    static void registerSystems(flecs::world& world, std::function<NetSession*()> current);
     void serverPoll();
     void keepAlive();
     void serverMapLoaded();

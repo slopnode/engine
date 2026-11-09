@@ -51,6 +51,15 @@ struct SettingsUiState {
     ControlsSettings controlsDraft{};
     int rebindingAction = -1;
     bool rebindingWaitMouseRelease = false;
+    bool hostOpen = false;
+    bool hostPending = false;
+    int hostSession = 0;
+    int hostMap = 0;
+    int hostPort = 27960;
+    int hostMaxPlayers = 0;
+    bool joinOpen = false;
+    bool joinPending = false;
+    char joinAddress[128] = {};
 };
 
 /** Debug overlay toggles and entity inspector selection.

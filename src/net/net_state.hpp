@@ -91,6 +91,7 @@ struct NetTarget {
 
 void registerNetState(flecs::world& world);
 void resetNetState(flecs::world& world);
+void resetNetSessionState(flecs::world& world);
 void addNetPlayer(flecs::world& world, std::string_view id);
 void removeNetPlayer(flecs::world& world, std::string_view id);
 void resetNetPlayer(flecs::world& world, std::string_view id);

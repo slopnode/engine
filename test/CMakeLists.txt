@@ -91,6 +91,7 @@ add_executable(sloptests
     ${CMAKE_SOURCE_DIR}/src/net/net_session.cpp
     ${CMAKE_SOURCE_DIR}/src/map/player_bodies.cpp
     ${CMAKE_SOURCE_DIR}/src/script/net_script.cpp
+    ${CMAKE_SOURCE_DIR}/src/game/net_control.cpp
     ${CMAKE_SOURCE_DIR}/src/script/player_target.cpp
     ${CMAKE_SOURCE_DIR}/src/script/bot_script.cpp
     ${CMAKE_SOURCE_DIR}/src/script/motor_script.cpp

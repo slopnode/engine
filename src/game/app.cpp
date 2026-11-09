@@ -203,6 +203,7 @@ int App::run() {
                 net_->serverMapLoaded();
             }
         } else {
+            takeNetControl();
             takePendingMapLoad();
         }
         if (net_ && net_->role() == NetRole::Client) {
@@ -252,6 +253,9 @@ void App::takePendingMapLoad() {
 }
 
 void App::startNetwork(const std::filesystem::path& settingsFilePath) {
+    settingsFilePath_ = settingsFilePath;
+    NetSession::registerSystems(world_, [this]() { return net_.get(); });
+    world_.set<NetStatus>({});
     if (config_.listenAddress.empty() && config_.connectAddress.empty()) {
         return;
     }
@@ -261,11 +265,23 @@ void App::startNetwork(const std::filesystem::path& settingsFilePath) {
     if (!config_.bot.empty() && (!config_.dedicated || config_.connectAddress.empty())) {
         throw std::invalid_argument("--bot needs --dedicated and --connect");
     }
+    openNetSession(config_.listenAddress, config_.connectAddress, config_.sessionKind, config_.maxPlayers);
+    if (!config_.bot.empty()) {
+        startBot();
+    }
+    updateNetStatus();
+}
+
+void App::openNetSession(
+    const std::string& listenAddress,
+    const std::string& connectAddress,
+    const std::string& sessionKind,
+    int maxPlayers) {
     NetSessionConfig net;
-    net.listenAddress = config_.listenAddress;
-    net.connectAddress = config_.connectAddress;
-    net.serverKeyPath = settingsFilePath.parent_path() / "server.key";
-    net.knownServersPath = settingsFilePath.parent_path() / "known_servers";
+    net.listenAddress = listenAddress;
+    net.connectAddress = connectAddress;
+    net.serverKeyPath = settingsFilePath_.parent_path() / "server.key";
+    net.knownServersPath = settingsFilePath_.parent_path() / "known_servers";
     if (!config_.serverKey.empty()) {
         SecureKey pinned{};
         if (!parseSecureKeyHex(config_.serverKey, pinned)) {
@@ -279,23 +295,30 @@ void App::startNetwork(const std::filesystem::path& settingsFilePath) {
         net.hello.packages.push_back({package.meta().id, package.meta().version});
     }
     const std::vector<NetSessionKind>& kinds = netSchema().sessionKinds();
-    if (!config_.sessionKind.empty() || !kinds.empty()) {
-        const NetSessionKind* kind =
-            config_.sessionKind.empty() ? &kinds.front() : netSchema().findSessionKind(config_.sessionKind);
+    if (!sessionKind.empty() || !kinds.empty()) {
+        const NetSessionKind* kind = sessionKind.empty() ? &kinds.front() : netSchema().findSessionKind(sessionKind);
         if (kind == nullptr) {
-            throw std::invalid_argument("--session " + config_.sessionKind + " isn't declared in *net-sessions*");
+            throw std::invalid_argument("session " + sessionKind + " isn't declared in *net-sessions*");
         }
         net.sessionKind = kind->name;
-        net.playerCeiling = config_.maxPlayers > 0 ? std::min(config_.maxPlayers, kind->maxPlayers) : kind->maxPlayers;
+        net.playerCeiling = maxPlayers > 0 ? std::min(maxPlayers, kind->maxPlayers) : kind->maxPlayers;
         net.maxPlayers = net.playerCeiling;
     } else {
-        net.playerCeiling = config_.maxPlayers > 0 ? std::min(config_.maxPlayers, kMaxNetPlayers) : kMaxNetPlayers;
-        net.maxPlayers = config_.maxPlayers > 0 ? net.playerCeiling : 8;
+        net.playerCeiling = maxPlayers > 0 ? std::min(maxPlayers, kMaxNetPlayers) : kMaxNetPlayers;
+        net.maxPlayers = maxPlayers > 0 ? net.playerCeiling : 8;
     }
     net.hostPlayerVisible = !config_.dedicated;
     net.firstClientTakesMapPlayer = config_.dedicated;
     net.loadMap = [](const std::string& mapId, const std::string& reason) { requestMapLoad(mapId, reason); };
-    net.disconnected = [this](const std::string&) { enterMenu(world_); };
+    net.disconnected = [this](const std::string& reason) {
+        if (bot_) {
+            enterMenu(world_);
+            return;
+        }
+        netError_ = reason;
+        netStopPending_ = true;
+        requestMapLoad("", "menu");
+    };
     net.spawnPresentation = [this](const std::string& name, const NetSpawnRecipe& recipe) {
         return spawnNetPresentation(world_, name, recipe);
     };
@@ -340,14 +363,104 @@ void App::startNetwork(const std::filesystem::path& settingsFilePath) {
         wire = createConditionedTransport(std::move(wire), conditions, botSeed());
     }
     net_ = std::make_unique<NetSession>(world_, std::move(net), std::move(wire));
-    net_->registerSystems();
     if (!net_->start()) {
-        throw std::runtime_error("network could not start");
+        net_.reset();
+        resetNetSessionState(world_);
+        throw std::runtime_error(
+            listenAddress.empty() ? "could not connect to " + connectAddress : "could not listen on " + listenAddress);
     }
-    if (!config_.bot.empty()) {
-        startBot();
-    }
+    netAddress_ = listenAddress.empty() ? connectAddress : listenAddress;
 }
+
+void App::closeNetSession() {
+    if (!net_) {
+        return;
+    }
+    bot_.reset();
+    net_.reset();
+    netAddress_.clear();
+    resetNetSessionState(world_);
+}
+
+std::string App::hostMapFor(const NetControlRequest& request) const {
+    if (!request.map.empty()) {
+        return request.map;
+    }
+    const std::vector<NetSessionKind>& kinds = netSchema().sessionKinds();
+    const NetSessionKind* kind = request.session.empty()
+        ? (kinds.empty() ? nullptr : &kinds.front())
+        : netSchema().findSessionKind(request.session);
+    if (kind != nullptr && !kind->maps.empty()) {
+        return kind->maps.front();
+    }
+    if (world_.has<CurrentMap>() && !world_.get<CurrentMap>().id.empty() && !isMenu(world_)) {
+        return world_.get<CurrentMap>().id;
+    }
+    const std::vector<AssetStore::MapListEntry> maps = assetStore_.listMaps();
+    return maps.empty() ? std::string{} : maps.front().id;
+}
+
+void App::takeNetControl() {
+    if (netStopPending_) {
+        netStopPending_ = false;
+        closeNetSession();
+    }
+    std::optional<NetControlRequest> request = takeNetControlRequest();
+    if (request) {
+        if (request->kind == NetControlKind::Leave) {
+            const bool wasOnline = net_ != nullptr;
+            closeNetSession();
+            netError_.clear();
+            if (wasOnline) {
+                requestMapLoad("", "menu");
+            }
+        } else if (request->kind == NetControlKind::Host) {
+            const std::string map = hostMapFor(*request);
+            closeNetSession();
+            netError_.clear();
+            if (map.empty()) {
+                netError_ = "there is no map to host";
+            } else {
+                try {
+                    openNetSession(request->address, "", request->session, request->maxPlayers);
+                    requestMapLoad(map, "fresh");
+                } catch (const std::exception& error) {
+                    netError_ = error.what();
+                }
+            }
+        } else {
+            closeNetSession();
+            netError_.clear();
+            try {
+                openNetSession("", request->address, "", 0);
+            } catch (const std::exception& error) {
+                netError_ = error.what();
+            }
+        }
+    }
+    updateNetStatus();
+}
+
+void App::updateNetStatus() {
+    NetStatus status{};
+    status.error = netError_;
+    if (net_) {
+        status.address = netAddress_;
+        if (net_->role() == NetRole::Server) {
+            status.kind = NetStatusKind::Hosting;
+            status.players = net_->serverPlayerCount();
+            status.maxPlayers = net_->serverPlayerLimit();
+        } else if (net_->role() == NetRole::Client) {
+            status.kind = net_->clientConnected() ? NetStatusKind::Connected : NetStatusKind::Connecting;
+        }
+        if (world_.has<NetSessionLimits>()) {
+            status.session = world_.get<NetSessionLimits>().kind;
+        }
+    }
+    world_.set<NetStatus>(std::move(status));
+}
+
+
 
 void App::startBot() {
     std::string source;
@@ -380,6 +493,7 @@ int App::runDedicated() {
     std::signal(SIGTERM, requestDedicatedStop);
     auto last = std::chrono::steady_clock::now();
     while (running_ && g_dedicatedStop == 0) {
+        takeNetControl();
         takePendingMapLoad();
         const auto now = std::chrono::steady_clock::now();
         const float frameDt = std::chrono::duration<float>(now - last).count();

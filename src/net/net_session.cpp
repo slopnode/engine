@@ -219,6 +219,7 @@ bool NetSession::start() {
         world_.get_mut<NetEventQueue>().localPlayerHere = config_.hostPlayerVisible;
         world_.get_mut<NetEffectQueue>().forward = true;
         world_.set<NetSessionLimits>({config_.sessionKind, config_.maxPlayers, config_.playerCeiling});
+        world_.add<SimShared>();
         world_.ensure<NetRewind>().maxTicks = config_.maxRewindTicks;
         Log::info(LogCategory::General, "NET: listening on %s, server key %s", config_.listenAddress.c_str(),
                   secureKeyFingerprint(transport_->publicKey()).c_str());
@@ -241,21 +242,27 @@ bool NetSession::start() {
 }
 
 void NetSession::registerSystems() {
-    world_.component<NetId>();
-    world_.system("NetApplyRemoteCommands")
+    registerSystems(world_, [this]() { return this; });
+}
+
+void NetSession::registerSystems(flecs::world& world, std::function<NetSession*()> current) {
+    world.component<NetId>();
+    world.system("NetApplyRemoteCommands")
         .kind(flecs::PreUpdate)
-        .run([this](flecs::iter&) {
-            if (role_ == NetRole::Server) {
-                serverTickStart_ = std::chrono::steady_clock::now();
-                serverApplyCommands();
-                serverNetMs_ += msSince(serverTickStart_);
+        .run([current](flecs::iter&) {
+            NetSession* session = current();
+            if (session != nullptr && session->role_ == NetRole::Server) {
+                session->serverTickStart_ = std::chrono::steady_clock::now();
+                session->serverApplyCommands();
+                session->serverNetMs_ += msSince(session->serverTickStart_);
             }
         }).add<SimSystem>();
-    world_.system("NetSendSnapshots")
+    world.system("NetSendSnapshots")
         .kind(flecs::PostUpdate)
-        .run([this](flecs::iter&) {
-            if (role_ == NetRole::Server) {
-                serverAfterTick();
+        .run([current](flecs::iter&) {
+            NetSession* session = current();
+            if (session != nullptr && session->role_ == NetRole::Server) {
+                session->serverAfterTick();
             }
         }).add<SimSystem>();
 }
