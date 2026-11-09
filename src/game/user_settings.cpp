@@ -151,6 +151,8 @@ GraphicsSettings UserSettings::loadGraphicsOrDefault(const std::filesystem::path
             }
         } else if (key == "vsync") {
             parseBool(value, graphics.vsync);
+        } else if (key == "msaa") {
+            parseInt(value, graphics.msaaSamples);
         } else if (key == "anti_aliasing") {
             if (const auto mode = antiAliasFromId(value)) {
                 graphics.antiAliasing = *mode;
@@ -173,6 +175,10 @@ GraphicsSettings UserSettings::loadGraphicsOrDefault(const std::filesystem::path
     }
     if (graphics.height < 360) {
         graphics.height = 360;
+    }
+    if (graphics.msaaSamples != 2 && graphics.msaaSamples != 4 && graphics.msaaSamples != 8 &&
+        graphics.msaaSamples != 16) {
+        graphics.msaaSamples = 0;
     }
     graphics.maxDynamicLights =
         std::clamp(graphics.maxDynamicLights, 0, kMaxDynamicLights);
@@ -247,6 +253,7 @@ bool UserSettings::save() const {
            << "height=" << graphics.height << '\n'
            << "mode=" << windowModeId(graphics.mode) << '\n'
            << "vsync=" << (graphics.vsync ? "1" : "0") << '\n'
+           << "msaa=" << graphics.msaaSamples << '\n'
            << "anti_aliasing=" << antiAliasId(graphics.antiAliasing) << '\n'
            << "dynamic_lights=" << (graphics.dynamicLights ? "1" : "0") << '\n'
            << "dynamic_light_shadows=" << (graphics.dynamicLightShadows ? "1" : "0") << '\n'

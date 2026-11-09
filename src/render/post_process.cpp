@@ -229,7 +229,8 @@ PostProcessState::PostProcessState(PostProcessState&& other) noexcept
     , bothPasses(std::move(other.bothPasses))
     , nextHandle(other.nextHandle)
     , antiAliasMode(std::exchange(other.antiAliasMode, AntiAliasMode::Off))
-    , antiAlias(std::move(other.antiAlias)) {
+    , antiAlias(std::move(other.antiAlias))
+    , msaa(std::move(other.msaa)) {
 }
 
 PostProcessState& PostProcessState::operator=(PostProcessState&& other) noexcept {
@@ -261,6 +262,7 @@ PostProcessState& PostProcessState::operator=(PostProcessState&& other) noexcept
     nextHandle = other.nextHandle;
     antiAliasMode = std::exchange(other.antiAliasMode, AntiAliasMode::Off);
     antiAlias = std::move(other.antiAlias);
+    msaa = std::move(other.msaa);
     return *this;
 }
 
@@ -270,6 +272,7 @@ PostProcessState::~PostProcessState() {
 
 void PostProcessState::unload() {
     antiAlias.reset();
+    msaa.reset();
     antiAliasMode = AntiAliasMode::Off;
     for (auto* list : {&scenePasses, &hudPasses, &bothPasses}) {
         for (auto& pass : *list) {
@@ -400,6 +403,31 @@ void setPostProcessAntiAlias(PostProcessState& state, AssetStore& assets, AntiAl
         prepareAntiAlias(*state.antiAlias, assets, mode, state.sceneW, state.sceneH)
             ? mode
             : AntiAliasMode::Off;
+}
+
+bool setPostProcessMsaa(PostProcessState& state, int samples) {
+    if (samples < 2 || state.scene.id == 0) {
+        state.msaa.reset();
+        return false;
+    }
+    if (!state.msaa) {
+        state.msaa = std::make_unique<MsaaTarget>();
+    }
+    if (!ensureMsaaTarget(*state.msaa, state.sceneW, state.sceneH, samples)) {
+        state.msaa.reset();
+        return false;
+    }
+    return true;
+}
+
+RenderTexture2D& postProcessSceneTarget(PostProcessState& state) {
+    return state.msaa && state.msaa->target.id != 0 ? state.msaa->target : state.scene;
+}
+
+void resolvePostProcessMsaa(PostProcessState& state) {
+    if (state.msaa) {
+        resolveMsaaTarget(*state.msaa, state.scene);
+    }
 }
 
 bool postProcessNeedsCompositePipeline(const PostProcessState& state) {

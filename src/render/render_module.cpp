@@ -289,7 +289,8 @@ void registerRenderSystems(flecs::world& world) {
                         setPostProcessAntiAlias(
                             *postState, *world.get<AssetServices>().store, graphics.antiAliasing);
                     }
-                    BeginTextureMode(postState->scene);
+                    setPostProcessMsaa(*postState, graphics.msaaSamples);
+                    BeginTextureMode(postProcessSceneTarget(*postState));
                     ClearBackground(BLACK);
                 }
             }
@@ -347,6 +348,7 @@ void registerRenderSystems(flecs::world& world) {
                 cpuMark(GpuPass::FirstPerson);
                 if (sceneToTexture) {
                     EndTextureMode();
+                    resolvePostProcessMsaa(*postState);
                     if (crossfading && assetStore != nullptr) {
                         const LoadingSession& session = world.get<LoadingSession>();
                         presentLoadingCrossfade(

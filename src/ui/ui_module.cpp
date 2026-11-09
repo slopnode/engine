@@ -33,6 +33,7 @@
 #include "render/components.hpp"
 #include "render/dynamic_light.hpp"
 #include "render/dynamic_light_shadows.hpp"
+#include "render/msaa_target.hpp"
 #include "render/render_context.hpp"
 #include "render/sprite_animator.hpp"
 #include "script/scheme_harden.hpp"
@@ -854,6 +855,23 @@ void drawGraphicsSettings(
     }
 
     ImGui::Checkbox("VSync", &draft.vsync);
+
+    const std::vector<int> msaaOptions = msaaSampleOptions();
+    const std::string msaaCurrent =
+        draft.msaaSamples >= 2 ? std::to_string(draft.msaaSamples) + "x" : std::string("Off");
+    if (ImGui::BeginCombo("MSAA", msaaCurrent.c_str())) {
+        for (const int samples : msaaOptions) {
+            const std::string label = samples >= 2 ? std::to_string(samples) + "x" : std::string("Off");
+            const bool selected = samples == draft.msaaSamples;
+            if (ImGui::Selectable(label.c_str(), selected)) {
+                draft.msaaSamples = samples;
+            }
+            if (selected) {
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+        ImGui::EndCombo();
+    }
 
     constexpr AntiAliasMode kAntiAliasModes[] = {AntiAliasMode::Off, AntiAliasMode::Fxaa, AntiAliasMode::Smaa};
     if (ImGui::BeginCombo("Anti-Aliasing", antiAliasLabel(draft.antiAliasing))) {

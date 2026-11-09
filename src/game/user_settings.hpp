@@ -23,6 +23,7 @@ struct GraphicsSettings {
     int height = 720;
     WindowMode mode = WindowMode::Windowed;
     bool vsync = true;
+    int msaaSamples = 0;
     AntiAliasMode antiAliasing = AntiAliasMode::Off;
     bool dynamicLights = true;
     bool dynamicLightShadows = true;
