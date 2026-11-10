@@ -80,6 +80,17 @@ if(UNIX AND NOT APPLE)
     target_link_libraries(soloud PUBLIC Threads::Threads ${CMAKE_DL_LIBS} m)
 endif()
 
+# miniaudio 0.10.x dlopens Core Audio by relative framework path, which current
+# macOS no longer resolves; link the frameworks directly instead.
+if(APPLE)
+    target_compile_definitions(soloud PRIVATE MA_NO_RUNTIME_LINKING)
+    target_link_libraries(soloud PUBLIC
+        "-framework CoreFoundation"
+        "-framework CoreAudio"
+        "-framework AudioToolbox"
+    )
+endif()
+
 if(MSVC)
     target_compile_options(soloud PRIVATE /W3)
     set_property(TARGET soloud PROPERTY
