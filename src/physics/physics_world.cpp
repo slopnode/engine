@@ -8,6 +8,7 @@
 #include <Jolt/Core/Factory.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyFilter.h>
+#include <Jolt/Physics/Body/BodyLock.h>
 #include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
@@ -2131,7 +2132,14 @@ std::optional<RayCastHit> PhysicsWorld::castRay(
         static_cast<float>(point.GetY()),
         static_cast<float>(point.GetZ()),
     };
-    result.normal = {0.0f, 1.0f, 0.0f};
+    JPH::BodyLockRead lock(system_->GetBodyLockInterface(), hit.mBodyID);
+    if (lock.Succeeded()) {
+        JPH::Vec3 normal = lock.GetBody().GetWorldSpaceSurfaceNormal(hit.mSubShapeID2, point);
+        if (normal.Dot(JPH::Vec3(unitDir.x, unitDir.y, unitDir.z)) > 0.0f) {
+            normal = -normal;
+        }
+        result.normal = {normal.GetX(), normal.GetY(), normal.GetZ()};
+    }
     return result;
 }
 

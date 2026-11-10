@@ -248,6 +248,7 @@ void runCastScanTests() {
         CHECK(hit->fraction > 0.0f);
         CHECK(hit->fraction < 1.0f);
         CHECK(std::fabs(hit->point.z - 2.0f) < 0.05f);
+        CHECK(hit->normal.z < -0.5f);
     }
 
     {
