@@ -29,6 +29,7 @@ window.SLOPENGINE_SCHEME_FNS = [
   "nav-has-path?", "nav-leaf-at", "nav-leaf-bounds", "nav-leaf-ceiling",
   "nav-leaf-floor", "nav-path-altitude", "nav-path-direction", "nav-set-goal-entity",
   "nav-set-goal-pos", "nav-waypoint", "on-camera-path-end", "on-map-ready", "on-sight", "on-sprite-hint",
+  "on-player-appear", "on-player-join", "on-player-leave", "on-player-profile", "on-player-vanish",
   "on-startup", "package-load-data", "package-load-script", "package-mounted?",
   "particle-despawn", "particle-play", "particle-spawn", "particle-spawn-attach", "particle-spawn-bone", "particle-spawn-follow",
   "particle-spawn-fp", "particle-stop", "pause-menu?", "play-audio", "play-audio-3d",
