@@ -17,10 +17,13 @@ Scope|Description|Caps
 -|-|-
 boot|Initial package loading and setup|`package-load`
 startup|After packages load and game starts|`startup-query`,`package-load`,`map-control`,`save-io`,`read-world`,`ui-draw`
-world|Main gameplay loop|`world-mutate`,`fp-present`,`audio`,`input-query`,`read-world`,`map-control`,`save-io`
+world|Main gameplay loop|`world-mutate`,`effects`,`fp-present`,`audio`,`input-query`,`read-world`,`map-control`,`save-io`
 hud|HUD rendering|`hud-draw`,`input-query`,`read-world`
+present|First-person presentation every frame, on clients too, and `on-event-*` handlers everywhere|`fp-present`,`effects`,`audio`,`input-query`,`read-world`
 ui|UI (non-hud) rendering|`ui-draw`,`save-io`,`map-control`,`package-load`,`read-world`,`startup-query`
 mapauthor|Loading map files|none
+bot|A bot script on a dedicated client, see @ref bots|`bot-input`,`input-query`,`read-world`
+predict|A network client's own command, once per command it sends, see @ref predict|`fp-present`,`effects`,`audio`,`input-query`,`read-world`
 
 ## Roles {#roles}
 
@@ -29,6 +32,14 @@ Role|Description
 Engine|Internal engine components
 Base|Has full access to most capabilities
 Mod|Limited to read-only and presentation capabilities
+
+A procedure's role comes from the package whose script or data file defined it. Mod code can't take over a procedure that the engine, the base package, or s7 itself defined. If a mod redefines or `set!`s one, the engine restores the original as soon as that mod call returns, and before any non-mod code runs, then logs a warning naming the procedure. Mods extend hooks with `hook-add`. A procedure registered through `hook-add` while mod code is running gets the Mod role, whichever file registered it.
+
+A base registry that stores procedures and calls them later passes each one through `as-caller-role` when it is registered. A procedure registered by mod code then runs with the Mod role whoever calls it. Base code calling a stored mod procedure that skipped `as-caller-role` runs it with Base rights.
+
+The disabled file, eval, environment, and process primitives stay disabled when reached through `#_name` or `(unlet)`. `openlet`, `symbol-access`, and `procedure-setter` are disabled, so a value or variable can't carry code that runs when base code reads, sets, or does arithmetic on it. A mod's changes to s7's own hooks, such as `*error-hook*` and `*unbound-variable-hook*`, are undone the same way as rebound procedures.
+
+Two s7 features can still carry mod code inside plain data, a hash table made with custom equality procedures and a closure used as an iterator. Base code that walks or looks up data a mod built can run that code with Base rights.
 
 ## Capabilities {#capabilities}
 
@@ -39,12 +50,14 @@ Capability|Description
 `save-io`| Reading/writing save files
 `map-control`| Loading/saving maps, controlling map flow
 `world-mutate`| Modifying game world state
+`effects`| Spawning and controlling cosmetic effects: particles, trails, tracers, debug lines and FX and dynamic lights, including lights hung on an entity. Moving an entity is `world-mutate`, even with `dyn-light-set-pos!`
 `fp-present`| First-person presentation (weapon attachments, etc.)
 `audio`| Playing audio and music
 `input-query`| Querying input state
 `package-load`| Loading package data
 `startup-query`| Querying startup arguments
 `read-world`| Reading world state information
+`bot-input`| Writing a bot's input
 
 # Functions {#functions}
 
@@ -131,6 +144,13 @@ Appends a contributor procedure for an engine-owned hook (see the Hooks section 
   ↵ boolean?
 </code></pre>
 
+### as-caller-role {#as-caller-role}
+Wraps a procedure so it runs with the Mod role when mod code is the caller of `as-caller-role`. Returns the procedure unchanged when called from engine or base code, or when given something that isn't a procedure.
+<pre><code class="language-scheme">(as-caller-role
+  proc : procedure?)
+  ↵ procedure?
+</code></pre>
+
 ### startup-arg {#startup-arg}
 Returns a package CLI value by name.
 <pre><code class="language-scheme">(startup-arg
@@ -156,8 +176,8 @@ Returns the current map's folder id.
 </code></pre>
 
 ### list-maps {#list-maps}
-Lists the available map folder ids.
-<pre><code class="language-scheme">(list-maps) ↵ (listof string?)
+Lists the available maps as `(id . name)` pairs, sorted by name. The map `*package-title*` names for the title screen is left out, so map pickers and the Host Game menu never offer it.
+<pre><code class="language-scheme">(list-maps) ↵ (listof pair?)
 </code></pre>
 
 ### return-to-menu {#return-to-menu}
@@ -167,9 +187,27 @@ Unloads the current map and returns to the main menu.
 
 ## Player {#player}
 
+### players {#players}
+Returns the ids of every player body, the map's `"Player"` and any a server spawned for clients. The `player-pose`, `player-velocity`, `player-grounded?`, `player-eye`, `player-look-dir`, `player-collider`, `player-set-collider` and `player-set-eye-height` functions take one of these ids.
+<pre><code class="language-scheme">(players) ↵ (listof string?)
+</code></pre>
+
+### script-player {#script-player}
+Returns the id of the player that `player-*` functions and `action-down?` act on when no id is given. It is `"Player"` unless a `with-script-player` call or an `on-action-*` hook for another body is running. First-person `fp-*` calls do nothing for any other player.
+<pre><code class="language-scheme">(script-player) ↵ string?
+</code></pre>
+
+### with-script-player {#with-script-player}
+Calls `thunk` with `script-player` set to `id`, then restores it, also on error and when a continuation leaves or reenters `thunk`. Returns `#f` without calling `thunk` when `id` isn't a string naming a player body. Every hook the engine calls starts from the player it was given and gets it back afterwards, so a switch can't outlive the hook that made it.
+<pre><code class="language-scheme">(with-script-player
+  id : string?
+  thunk : procedure?) ↵ any?
+</code></pre>
+
 ### player-pose {#player-pose}
 Returns the player's position and look as `(x y z yaw pitch)`.
-<pre><code class="language-scheme">(player-pose) ↵ (list real? real? real? real? real?)
+<pre><code class="language-scheme">(player-pose
+  [id : string? = (script-player)]) ↵ (list real? real? real? real? real?)
 </code></pre>
 
 ### player-set-pose {#player-set-pose}
@@ -188,18 +226,21 @@ Returns the player's current eye height above their feet.
 ### player-set-eye-height {#player-set-eye-height}
 Sets the CharacterMotor eye height.
 <pre><code class="language-scheme">(player-set-eye-height
-  h : real?) ↵ boolean?
+  h : real?
+  [id : string? = (script-player)]) ↵ boolean?
 </code></pre>
 
 ### player-collider {#player-collider}
 Returns the player's current collider as `(radius height)`.
-<pre><code class="language-scheme">(player-collider) ↵ (list real? real?)
+<pre><code class="language-scheme">(player-collider
+  [id : string? = (script-player)]) ↵ (list real? real?)
 </code></pre>
 
 ### player-set-collider {#player-set-collider}
 Sets the player's collider radius and height.
 <pre><code class="language-scheme">(player-set-collider
-  radius, height : real?) ↵ boolean?
+  radius, height : real?
+  [id : string? = (script-player)]) ↵ boolean?
 </code></pre>
 
 ### player-set-control {#player-set-control}
@@ -221,9 +262,45 @@ Returns the player's current horizontal speed, in world units per second.
 <pre><code class="language-scheme">(player-speed) ↵ real?
 </code></pre>
 
+### player-velocity {#player-velocity}
+Returns the player's physics velocity as `(vx vy vz)`, in world units per second. Physics runs on a fixed step, so this is steadier than differencing `player-pose` between frames.
+<pre><code class="language-scheme">(player-velocity
+  [id : string? = (script-player)]) ↵ (list real? real? real?)
+</code></pre>
+
+### player-command-time {#player-command-time}
+Returns how many seconds of the player's input the last tick applied. Single-player and a host's own player get one tick. A network client's body gets one tick per command the server applied, so two when the server caught up on a late command and 0 when none arrived. Timers that follow a player's input, such as a weapon's fire rate and reload, run on this instead of `dt` so they keep step with what the client predicts. In `predict` scope it is one tick.
+<pre><code class="language-scheme">(player-command-time
+  [id : string? = (script-player)]) ↵ real?
+</code></pre>
+
 ### player-grounded? {#player-grounded}
 Checks whether the player's character motor is on the ground.
-<pre><code class="language-scheme">(player-grounded?) ↵ boolean?
+<pre><code class="language-scheme">(player-grounded?
+  [id : string? = (script-player)]) ↵ boolean?
+</code></pre>
+
+### player-jump! {#player-jump}
+Launches the player upward at `speed` meters per second if they are standing on something, keeping their horizontal velocity. Returns \#f when the player is airborne or has no physics body.
+<pre><code class="language-scheme">(player-jump!
+  speed : real?) ↵ boolean?
+</code></pre>
+
+### player-set-gravity! {#player-set-gravity}
+Sets the downward acceleration of the player's character motor in meters per second squared. The default is 9.81. Raising it together with the `player-jump!` speed gives a jump of the same height with less hang time. Returns \#f when there is no player.
+<pre><code class="language-scheme">(player-set-gravity!
+  gravity : real?) ↵ boolean?
+</code></pre>
+
+### player-move-speed {#player-move-speed}
+Returns the top horizontal speed of the player's character motor in meters per second, or \#f when there is no player.
+<pre><code class="language-scheme">(player-move-speed) ↵ real?
+</code></pre>
+
+### player-set-move-speed! {#player-set-move-speed}
+Sets the top horizontal speed of the player's character motor in meters per second. A map load resets it to the package or player-start value. Sprinting is this call with a larger speed while a key is held. Returns \#f when there is no player.
+<pre><code class="language-scheme">(player-set-move-speed!
+  speed : real?) ↵ boolean?
 </code></pre>
 
 ### player-wish-speed {#player-wish-speed}
@@ -233,12 +310,173 @@ Returns the current wish-vector speed, before physics resolves collisions.
 
 ### player-eye {#player-eye}
 Returns the player's eye-space world position as `(x y z)`.
-<pre><code class="language-scheme">(player-eye) ↵ (list real? real? real?)
+<pre><code class="language-scheme">(player-eye
+  [id : string? = (script-player)]) ↵ (list real? real? real?)
 </code></pre>
 
 ### player-look-dir {#player-look-dir}
 Returns the player's normalized look direction as `(x y z)`.
-<pre><code class="language-scheme">(player-look-dir) ↵ (list real? real? real?)
+<pre><code class="language-scheme">(player-look-dir
+  [id : string? = (script-player)]) ↵ (list real? real? real?)
+</code></pre>
+
+## Net state {#net-state-api}
+
+Fields declared in `data/net.s7` (see @ref dataapi). An id is a player id, which is `"Player"` for the local player, a thing id, or the symbol `'session`.
+
+### net-get {#net-get}
+Returns a declared field's value. Raises a `net` error for a field the target doesn't declare, and returns `\#f` for an unknown target.
+<pre><code class="language-scheme">(net-get
+  id : (or string? 'session)
+  field : symbol?) ↵ any?
+</code></pre>
+
+### net-set! {#net-set}
+Stores a value in a declared field. Raises a `net` error when the value doesn't fit the field's type, including NaN and infinity, or when a mod sets a field the base package declared. Integer fields round real values, and real fields snap to their step. On a network client it changes nothing and returns `#f`, since only the server writes declared state.
+<pre><code class="language-scheme">(net-set!
+  id : (or string? 'session)
+  field : symbol?
+  value : any?) ↵ boolean?
+</code></pre>
+
+### net-reset! {#net-reset}
+Resets every player and session field to its default, for a new game. Raises a `net` error when a mod calls it. On a network client it changes nothing and returns `#f`.
+<pre><code class="language-scheme">(net-reset!) ↵ boolean?
+</code></pre>
+
+### net-save-state {#net-save-state}
+Returns every field marked `save` as `((session (field . value) ...) (player "Player" (field . value) ...))`.
+<pre><code class="language-scheme">(net-save-state) ↵ list?
+</code></pre>
+
+### net-restore-state! {#net-restore-state}
+Applies a list from `net-save-state`. Unknown fields and values that no longer fit are skipped. Returns how many fields were applied. Raises a `net` error when a mod calls it. On a network client it changes nothing and returns `#f`.
+<pre><code class="language-scheme">(net-restore-state!
+  state : list?) ↵ integer?
+</code></pre>
+
+### net-event! {#net-event}
+Raises a declared event. Runs `(on-event-NAME where arg ...)` here, and on a server also sends the event to the client its audience allows. Raises a `net` error for an undeclared event, a wrong or non-finite `where`, arguments that don't match the declaration, or a mod raising an event the base package declared. In `predict` scope it only raises events declared `(predict \#t)`, runs the handler on this client and sends nothing, and an `owner` event has to name `(script-player)`. The server's own copy of the event for the same command is then dropped when it arrives. Outside `predict` it needs `world-mutate`.
+<pre><code class="language-scheme">(net-event!
+  event : symbol?
+  where : (or (list real? real? real?) string? \#f)
+  arg : any? ...) ↵ boolean?
+</code></pre>
+
+### net-command-tick {#net-command-tick}
+Returns the number of the command `predict` is running for, or `#f` outside `predict`.
+<pre><code class="language-scheme">(net-command-tick) ↵ (or integer? #f)
+</code></pre>
+
+### net-player-name {#net-player-name}
+Returns the name the server uses for this process's own player, such as `"player-2"` on a client. Single-player, a host and a server return `"Player"`. Events aimed at a player carry the server's name, so a handler compares it with this to tell its own player from another.
+<pre><code class="language-scheme">(net-player-name) ↵ string?
+</code></pre>
+
+### player-display-name {#player-display-name}
+Returns the name a player chose in Multiplayer > Profile, for a player id such as `"player-2"`, or for this process's own player without an argument. Names are up to 24 printable characters, and the server adds a number when two players pick the same one. Returns the id itself for an id the server doesn't list. Use it for anything shown to players, and the id for everything else, since names can change during a session.
+<pre><code class="language-scheme">(player-display-name [player-id]) ↵ string?
+</code></pre>
+
+### net-acked-command {#net-acked-command}
+Returns the newest command of this client's that the server had applied when it sent the latest snapshot, so the player fields read with `net-get` are from after that command. Returns `#f` outside `predict`. A script that predicts something counted in a field, such as rounds fired, subtracts what it predicted for later commands.
+<pre><code class="language-scheme">(net-acked-command) ↵ (or integer? #f)
+</code></pre>
+
+### with-lag-compensation {#with-lag-compensation}
+Runs `thunk` with every actor and player body other than the script player's moved back to where they were on that player's screen when they sent their latest command, and puts them back afterwards, even when `thunk` raises an error. A hitscan inside it hits what the player saw. Only does anything on a server, for a player whose client has sent commands. Elsewhere it just runs `thunk`. Needs world mutation, so it works in `tick`. Returns what `thunk` returns. See @ref net-lag-compensation.
+<pre><code class="language-scheme">(with-lag-compensation
+  thunk : procedure?) ↵ any?
+</code></pre>
+
+### net-rewound-tick {#net-rewound-tick}
+Returns the server tick `with-lag-compensation` moved everything back to, as a real number, or `#f` when nothing was moved.
+<pre><code class="language-scheme">(net-rewound-tick) ↵ (or real? #f)
+</code></pre>
+
+### net-schema-hash {#net-schema-hash}
+Returns the declared schema's hash as a hex string. Two installs with the same packages return the same hash.
+<pre><code class="language-scheme">(net-schema-hash) ↵ string?
+</code></pre>
+
+### session-kind {#session-kind}
+Returns the kind of session this process hosts or has joined, as declared in `*net-sessions*`, or `#f` offline or for a session of no declared kind. A server knows it before its first `on-map-ready`, a client once it has joined.
+<pre><code class="language-scheme">(session-kind) ↵ (or symbol? #f)
+</code></pre>
+
+### session-max-players {#session-max-players}
+Returns how many players the session takes at once, the host included, or `#f` offline. A client gets the server's number and sees it change.
+<pre><code class="language-scheme">(session-max-players) ↵ (or integer? #f)
+</code></pre>
+
+### session-set-max-players! {#session-set-max-players}
+Sets how many players the session takes, clamped between 1 and the session kind's `players` maximum, or `--max-players` when that is lower, and returns the new value. Players already in stay. Returns `#f` when this process isn't hosting.
+<pre><code class="language-scheme">(session-set-max-players!
+  n : integer?) ↵ (or integer? #f)
+</code></pre>
+
+### session-joinable {#session-joinable}
+Returns whether the session takes new players, or `#f` offline. A client gets the server's value.
+<pre><code class="language-scheme">(session-joinable) ↵ boolean?
+</code></pre>
+
+### session-set-joinable! {#session-set-joinable}
+Opens or closes the session to new players and returns the new value. A closed session answers a new player with `not taking new players` and still takes back a player who left within the rejoin hold. Players already in stay. Sessions start open. Returns `#f` when this process isn't hosting. Needs map control.
+<pre><code class="language-scheme">(session-set-joinable!
+  joinable : boolean?) ↵ boolean?
+</code></pre>
+
+### session-players {#session-players}
+Returns the ids of every player in the session, the host included, sorted. Works on clients too. Single-player it is `("Player")`.
+<pre><code class="language-scheme">(session-players) ↵ (listof string?)
+</code></pre>
+
+### net-rejoin-record {#net-rejoin-record}
+Returns the travel record a player left with, as a list of `(field . value)` for every player field declared `(travel \#t)`, when they came back within the rejoin hold and `on-player-join` was called with `rejoin`. Returns `#f` otherwise. Nothing in it is applied until a script applies it. The record stays until the player leaves again.
+<pre><code class="language-scheme">(net-rejoin-record
+  player-id : string?) ↵ (or list? #f)
+</code></pre>
+
+### net-apply-travel! {#net-apply-travel}
+Writes the values of a travel record into a player's fields, or only those named in `fields`, and returns how many it wrote. Every entry has to name a travel field and hold a value of its type. Server and single-player only, returning `#f` on a client. A mod can only write fields mods declare.
+<pre><code class="language-scheme">(net-apply-travel!
+  player-id : string?
+  record : list?
+  [fields : (listof symbol?)]) ↵ (or integer? #f)
+</code></pre>
+
+### session-kinds {#session-kinds}
+Returns every declared session kind as `(name title min-players max-players maps)`, in declaration order, where `maps` is the kind's map list or empty.
+<pre><code class="language-scheme">(session-kinds) ↵ (listof list?)
+</code></pre>
+
+### net-host {#net-host}
+Starts hosting at the start of the next frame, as the Host Game menu does. Leaves any current session first, then listens on `port`, 27960 by default, which can also be a `"host:port"` string, hosts `session-kind`, the first declared kind by default, and loads `map` fresh. Without a map it loads the kind's first map, then the current map, then the first map the packages list. Pass `#f` to skip an argument. Raises an error for an undeclared kind or a port out of range. A port that is already taken shows up as `net-error`. Needs map control.
+<pre><code class="language-scheme">(net-host
+  [port : (or integer? string? #f)]
+  [session-kind : (or symbol? string? #f)]
+  [map : (or string? #f)]) ↵ #t
+</code></pre>
+
+### net-join {#net-join}
+Joins the server at `address` at the start of the next frame, leaving any current session first. The port defaults to 27960. The server sends its map once the hello is accepted. Needs map control.
+<pre><code class="language-scheme">(net-join
+  address : string?) ↵ #t
+</code></pre>
+
+### net-leave {#net-leave}
+Leaves the current session at the start of the next frame and returns to the title. A host's clients are told the server is shutting down. Every declared field goes back to its default. Needs map control.
+<pre><code class="language-scheme">(net-leave) ↵ #t
+</code></pre>
+
+### net-status {#net-status}
+Returns `'offline`, `'hosting`, `'connecting` or `'connected`.
+<pre><code class="language-scheme">(net-status) ↵ symbol?
+</code></pre>
+
+### net-error {#net-error}
+Returns why the last host, join or connection failed, such as `"no response"` or `"server full"`, or `#f`. The next `net-host`, `net-join` or `net-leave` clears it.
+<pre><code class="language-scheme">(net-error) ↵ (or string? #f)
 </code></pre>
 
 ## Input {#input}
@@ -253,6 +491,101 @@ Checks whether a package-defined input action is currently held down.
 Checks whether a package-defined input action was pressed this frame.
 <pre><code class="language-scheme">(action-pressed?
   id : string?) ↵ boolean?
+</code></pre>
+
+## Motor rules {#motor-rule-api}
+
+Functions for the movement rules a game declares in `data/motor.s7`, see @ref motor-rules. They act on `(script-player)` unless given a player id. A rule's state travels with the player's own snapshot, so a client predicts it the same way.
+
+### motor-rule-enable! {#motor-rule-enable}
+Switches a rule on or off for a player. A rule that is off is never active. Every rule starts on.
+<pre><code class="language-scheme">(motor-rule-enable!
+  rule : (or symbol? string?)
+  on : boolean?
+  [id : string? = (script-player)]) ↵ boolean?
+</code></pre>
+
+### motor-rule-active? {#motor-rule-active}
+Checks whether a rule was active on the player's latest tick.
+<pre><code class="language-scheme">(motor-rule-active?
+  rule : (or symbol? string?)
+  [id : string? = (script-player)]) ↵ boolean?
+</code></pre>
+
+### motor-rule-enabled? {#motor-rule-enabled}
+Checks whether a rule is switched on for a player.
+<pre><code class="language-scheme">(motor-rule-enabled?
+  rule : (or symbol? string?)
+  [id : string? = (script-player)]) ↵ boolean?
+</code></pre>
+
+## Bots {#bots}
+
+A bot script plays a dedicated client started with `--bot`. The engine looks for `scripts/bots/NAME.s7` in the mounted packages, so a game or a mod can ship bots, or takes a path to a `.s7` file. The engine package has `still` and `walk`, and slopdemo adds `fight`, which aims at the nearest actor it can see and fires. The script is evaluated in an environment of its own with the Mod role, so its definitions don't touch the game's, and it must define `bot-tick`, which the engine calls every frame before the client builds its command. It runs in `bot` scope, so it reads what the client knows through the usual read functions, such as `player-pose`, `player-eye`, `actors-in-radius`, `los?` and `net-get`, and acts only through the functions below. A bot has the same view of the game as a player on that client and nothing more.
+
+<pre><code class="language-scheme">(define (bot-tick dt)
+  (bot-move! 1.0 0.0)
+  (let ((view (bot-view)))
+    (bot-look! (+ (car view) (* 0.5 dt)) 0.0)))
+</code></pre>
+
+### bot-tick {#bot-tick}
+Defined by the bot script. Called every frame with the frame time in seconds.
+<pre><code class="language-scheme">(bot-tick
+  dt : real?)
+</code></pre>
+
+### bot-move! {#bot-move}
+Sets the movement input, each axis from -1 to 1, and holds the matching movement actions.
+<pre><code class="language-scheme">(bot-move!
+  forward : real?
+  strafe : real?
+  [up : real? = 0]) ↵ boolean?
+</code></pre>
+
+### bot-look! {#bot-look}
+Turns the view to a yaw and pitch in radians. Yaw 0 looks along +z and pitch is kept within 1.55 of level.
+<pre><code class="language-scheme">(bot-look!
+  yaw : real?
+  pitch : real?) ↵ boolean?
+</code></pre>
+
+### bot-view {#bot-view}
+Returns the view's `(yaw pitch)`.
+<pre><code class="language-scheme">(bot-view) ↵ (or (list real? real?) #f)
+</code></pre>
+
+### bot-hold! {#bot-hold}
+Holds or releases an action by its id, a core one such as `"Jump"` or one from the game's `*package-actions*`. Returns `#f` for an id nobody declared.
+<pre><code class="language-scheme">(bot-hold!
+  action : string?
+  down : boolean?) ↵ boolean?
+</code></pre>
+
+### bot-press! {#bot-press}
+Presses an action once, as a key going down would.
+<pre><code class="language-scheme">(bot-press!
+  action : string?) ↵ boolean?
+</code></pre>
+
+### bot-release-all! {#bot-release-all}
+Releases every action and stops moving.
+<pre><code class="language-scheme">(bot-release-all!) ↵ boolean?
+</code></pre>
+
+### bot-actions {#bot-actions}
+Returns the ids of every declared action.
+<pre><code class="language-scheme">(bot-actions) ↵ (listof string?)
+</code></pre>
+
+### bot-known {#bot-known}
+Returns the entities the server has introduced to this client and that it shows, as `(name . kind)` pairs where kind is `thing` or `player`. Other players appear by their stand-in names.
+<pre><code class="language-scheme">(bot-known) ↵ (listof (cons string? symbol?))
+</code></pre>
+
+### bot-seed {#bot-seed}
+Returns a number picked when the bot started, for `(random-state (bot-seed))`, so bots started together don't move alike.
+<pre><code class="language-scheme">(bot-seed) ↵ integer?
 </code></pre>
 
 ## UI (ImGui) {#ui-imgui}
@@ -616,13 +949,57 @@ Clears whatever is currently attached to a first-person socket.
 </code></pre>
 
 ### fp-attach-geo {#fp-attach-geo}
-Attaches a geometry asset to a first-person socket, with an optional local offset and scale.
+Attaches a geometry asset to a first-person socket, with an optional local offset, scale, and rotation in radians. When the arguments are left out the placement comes from the geo's `(view ...)` block, which slopmodel edits (see @ref filegeo). A skinned geo gets an animation player over its skeleton's clip bank, so a hands rig attached here is driven with `fp-play-anim` and its clip events reach `on-anim-event` with the socket name as the source.
 <pre><code class="language-scheme">(fp-attach-geo
   socket : string?
   geo : string?
   [x, y, z] : real? = 0
-  [sx, sy, sz] : real? = 1)
+  [sx, sy, sz] : real? = 1
+  [pitch, yaw, roll] : real? = 0)
   ↵ boolean?
+</code></pre>
+
+### fp-play-anim {#fp-play-anim}
+Plays a clip on the skinned geo attached to a socket, or on geo hung from it. `path` is the socket name, optionally followed by attachment names such as `weapon/held`. Returns \#f when the path names no skinned geo or the bank has no such clip.
+<pre><code class="language-scheme">(fp-play-anim
+  path : string?
+  clip : string?
+  [loop?] : boolean? = \#f)
+  ↵ boolean?
+</code></pre>
+
+### fp-anim-busy? {#fp-anim-busy}
+Checks whether the skinned geo `path` names is still mid-way through a non-looping clip.
+<pre><code class="language-scheme">(fp-anim-busy?
+  path : string?) ↵ boolean?
+</code></pre>
+
+### fp-attach-held {#fp-attach-held}
+Hangs a geo on a bone of the geo attached to a first-person socket, the held weapon on a hands rig. `path` is the socket name, or a path such as `weapon/held` to hang the geo on the held geo instead. `point` is a bone name or the name of an attachment declared in the host geo's `(attachments ...)` block, and the offset, rotation in radians and uniform scale apply relative to that point. A skinned geo gets an animation player over its skeleton's clip bank, driven with `fp-play-anim` on its path. A second call with the same `name` on the same host replaces the earlier one, along with anything hung on it.
+<pre><code class="language-scheme">(fp-attach-held
+  path : string?
+  name : string?
+  point : string?
+  geo : string?
+  [x y z] : real? = 0
+  [pitch yaw roll] : real? = 0
+  [scale] : real? = 1)
+  ↵ boolean?
+</code></pre>
+
+### fp-detach-held {#fp-detach-held}
+Removes a geo hung with `fp-attach-held`, along with anything hung on it. `path` names the host it hangs on.
+<pre><code class="language-scheme">(fp-detach-held
+  path : string?
+  name : string?) ↵ boolean?
+</code></pre>
+
+### fp-point {#fp-point}
+Returns where a point on a first-person geo is in the world, as `(x y z)`, or `#f` when `path` names nothing. `path` names a socket's geo or one hung under it, such as `"weapon/held"`, and the point is in that geo's own space, the origin when left out. A weapon's muzzle measured on its geo gives a world-space start for `tracer-spawn` that follows the gun through recoil and sway.
+<pre><code class="language-scheme">(fp-point
+  path : string?
+  [x, y, z] : real?)
+  ↵ list? or #f
 </code></pre>
 
 ### fp-attach-sprite {#fp-attach-sprite}
@@ -711,7 +1088,7 @@ Sets a socket sprite's normalized origin point.
 </code></pre>
 
 ### fp-spawn-light {#fp-spawn-light}
-Spawns a dynamic light as a child of a first-person socket.
+Spawns a dynamic light as a child of a first-person socket, replacing anything already under it. The light starts off and casts shadows. View space has x right, y up and z forward, and a spot points along +z. The `"light"` socket sits on the eye and does not follow the weapon's bob or drop, which suits a flashlight.
 <pre><code class="language-scheme">(fp-spawn-light
   socket : string?
   kind : symbol?
@@ -731,13 +1108,13 @@ Enables or disables a light previously spawned under a socket.
 </code></pre>
 
 ### fp-set-rad-tint {#fp-set-rad-tint}
-Toggles whether viewmodels are tinted by the map's baked light probe.
+Toggles whether viewmodels take the map's baked light. In a lit map, first-person geo is then lit per pixel like world models, from the probe grid and nearby static lights, and view sprites are tinted by the probe.
 <pre><code class="language-scheme">(fp-set-rad-tint
   enabled : boolean?) ↵ boolean?
 </code></pre>
 
 ### fp-set-shading {#fp-set-shading}
-Toggles the viewmodel faux-lighting shader.
+Toggles the viewmodel faux-lighting shader, a fixed key and rim light. First-person geo uses it only when the map has no baked lighting or rad tint is off.
 <pre><code class="language-scheme">(fp-set-shading
   enabled : boolean?) ↵ boolean?
 </code></pre>
@@ -746,6 +1123,64 @@ Toggles the viewmodel faux-lighting shader.
 Sets the package's view-space eye offset, in meters.
 <pre><code class="language-scheme">(fp-set-eye-offset
   x, y, z : real?) ↵ boolean?
+</code></pre>
+
+### fp-set-view-roll {#fp-set-view-roll}
+Rolls the presentation camera about its view direction, in radians. A positive roll tilts the view toward the right. First-person geo is drawn from its own unrolled camera, so it stays put on screen while the world tilts, the way a Quake strafe roll looks.
+<pre><code class="language-scheme">(fp-set-view-roll
+  roll : real?) ↵ boolean?
+</code></pre>
+
+### fp-set-view-offset {#fp-set-view-offset}
+Moves the whole first-person scene in view space, in meters, with +z pointing forward. Weapon bob is driven by setting it every frame.
+<pre><code class="language-scheme">(fp-set-view-offset
+  x, y, z : real?) ↵ boolean?
+</code></pre>
+
+### fp-recoil-tune! {#fp-recoil-tune}
+Sets how the player's recoil springs behave, usually once per weapon when it is raised. Keys left out take their defaults. `aim-*` tunes the aim punch, `kick-*` the first-person scene sliding back, lifting and sideways, and `twist-*` its rise, turn and roll about `pivot`, a view-space point in meters. Frequencies are in hertz and dampings are ratios from 0.05 to 1. `climb-time` is how long in seconds climb takes to reach the look angles. `recovery` is the fraction of climb that returns once `recovery-delay` seconds pass without a kick, over about `recovery-time` seconds. `shake-angle` is the largest camera shake in degrees, `shake-decay` how much shake fades per second and `shake-frequency` how fast it wobbles.
+<pre><code class="language-scheme">(fp-recoil-tune!
+  alist : alist?) ↵ boolean?
+</code></pre>
+
+Defaults:
+
+| Key | Default |
+| --- | --- |
+| `aim-frequency`, `aim-damping` | 9, 0.7 |
+| `kick-frequency`, `kick-damping` | 12, 0.5 |
+| `twist-frequency`, `twist-damping` | 9, 0.45 |
+| `climb-time` | 0.04 |
+| `recovery`, `recovery-delay`, `recovery-time` | 0, 0.12, 0.25 |
+| `pivot` | 0 -0.08 0.25 |
+| `shake-angle`, `shake-decay`, `shake-frequency` | 1.4, 3, 16 |
+
+<pre><code class="language-scheme">(fp-recoil-tune!
+  '((aim-frequency . 10) (kick-frequency . 14) (recovery . 0.45)
+    (pivot 0.0 -0.1 0.2)))
+</code></pre>
+
+### fp-recoil-kick! {#fp-recoil-kick}
+Adds one shot's recoil. Angles are degrees and lengths are meters, and each spring amount is roughly the peak a single kick reaches from rest. `punch-up` and `punch-right` jolt the aim and spring back. `climb-up` and `climb-right` move the aim for good, eased in over `climb-time`, for the player to pull back down. Both change where `player-look-dir` points, while mouse look keeps working on top. `back`, `lift` and `side` move the first-person scene, and `rise`, `turn` and `roll` swing it about the pivot. `shake` adds camera shake from 0 to 1, which moves only the world view, not the aim or the first-person scene.
+<pre><code class="language-scheme">(fp-recoil-kick!
+  alist : alist?) ↵ boolean?
+</code></pre>
+
+<pre><code class="language-scheme">(fp-recoil-kick!
+  '((punch-up . 0.7) (climb-up . 0.55) (climb-right . 0.1)
+    (back . 0.02) (rise . 2.2) (roll . -0.8) (shake . 0.06)))
+</code></pre>
+
+### fp-recoil-reset! {#fp-recoil-reset}
+Settles every recoil spring, pending climb and shake at once, keeping the tuning. Aim already moved by punch or climb stays where it is.
+<pre><code class="language-scheme">(fp-recoil-reset!) ↵ boolean?
+</code></pre>
+
+### fp-view-punch! {#fp-view-punch}
+Snaps the presented camera by `up`, `right` and `roll` degrees, like Half-Life's `punchangle`, replacing any punch still in progress. The aim and the viewmodel stay put. The punch shrinks back to nothing along its own direction by 10 degrees a second plus half its size a second, times `recover`, so a big punch snaps back fast and the last few degrees settle more slowly. A `recover` of 1 is Half-Life's rate.
+<pre><code class="language-scheme">(fp-view-punch!
+  up, right, roll : real?
+  [recover] : real? = 1) ↵ boolean?
 </code></pre>
 
 ### fp-set-weapon-hidden! {#fp-set-weapon-hidden}
@@ -780,6 +1215,12 @@ Sets the HUD drawing origin (e.g. `'top-left`, `'top-right`, `'center`).
 Sets the font used for subsequent HUD text drawing.
 <pre><code class="language-scheme">(hud-font
   path : string?) ↵ boolean?
+</code></pre>
+
+### hud-text-align {#hud-text-align}
+Sets how subsequent `hud-text` calls sit on their x position: `'left` starts the text there, `'right` ends it there and `'center` centers it. Resets to `'left` every frame.
+<pre><code class="language-scheme">(hud-text-align
+  symbol : symbol?) ↵ boolean?
 </code></pre>
 
 ### hud-rect {#hud-rect}
@@ -1002,6 +1443,18 @@ Queues despawn of a thing by its entity name.
   id : string?) ↵ boolean?
 </code></pre>
 
+### thing-respawn {#thing-respawn}
+Spawns a thing the map placed again, from its placement in the map's `things.s7`, under the same name. Returns `#f` when the map never placed `id`, when a thing of that name still exists, and for movers and brush-bound things. A despawn queued this tick still counts as existing.
+<pre><code class="language-scheme">(thing-respawn
+  id : string?) ↵ boolean?
+</code></pre>
+
+### map-things {#map-things}
+Returns the ids of every thing the current map placed, in map order, including ones despawned since, or only those of catalog type `type`.
+<pre><code class="language-scheme">(map-things
+  [type : string?]) ↵ (listof string?)
+</code></pre>
+
 ### thing-type {#thing-type}
 Returns the catalog type id for a thing.
 <pre><code class="language-scheme">(thing-type
@@ -1111,7 +1564,7 @@ Returns a thing's yaw, in radians.
 ## Effects {#script-effects}
 
 ### motored-spawn {#motored-spawn}
-Spawns a motor-driven projectile (rocket, fireball, etc.) that integrates against static geometry and actors.
+Spawns a motor-driven projectile (rocket, fireball, etc.) that integrates against static geometry and actors. A `'geo` projectile turns its +Z along its velocity every step, upright with no roll.
 <pre><code class="language-scheme">(motored-spawn
   id : string?
   x, y, z : real?
@@ -1137,7 +1590,7 @@ Spawns a world-space billboard sprite.
 </code></pre>
 
 ### particle-spawn {#particle-spawn}
-Spawns a particle system, aimed by either a yaw angle or an explicit direction vector.
+Spawns a particle system, aimed by either a yaw angle or an explicit direction vector. A system that doesn't loop despawns once its emitters stop and its last particle dies. A process started with `--dedicated` draws nothing, so there this and the other `particle-spawn` functions, the FX and dynamic light functions, `tracer-spawn` and the trail functions spawn nothing and return `#t`. These need `effects`, so `present` and event handlers can use them, and they refuse an id that is already taken.
 <pre><code class="language-scheme">(particle-spawn
   id : string?
   x, y, z : real?
@@ -1168,6 +1621,22 @@ Spawns a particle system attached to an existing thing.
   ↵ boolean?
 </code></pre>
 
+### particle-spawn-bone {#particle-spawn-bone}
+Spawns a particle system on a bone joint of a rigged thing, an actor or a severed part, and keeps it there as the bone moves. It points out of the limb, from the middle of the bone's hitbox through the joint, or out of the stump with `'stump`, from the middle of the parent's hitbox through the joint, which suits a joint whose bone was cut off. Emitters need `(orient #t)` to spray that way. The system stops when its host is removed.
+<pre><code class="language-scheme">(particle-spawn-bone
+  id, target, bone, path : string?
+  [mode] : symbol? = 'limb)
+  ↵ boolean?
+</code></pre>
+
+### particle-spawn-follow {#particle-spawn-follow}
+Spawns a particle system `back` metres behind any thing, such as a projectile, and keeps it there, aimed out of the thing's -Z. Emitters need `(orient #t)` to spray that way. When the host is removed the system stops emitting, its live particles finish their lifetimes, and then it despawns, so a smoke trail outlives the rocket that left it.
+<pre><code class="language-scheme">(particle-spawn-follow
+  id, target, path : string?
+  [back] : real? = 0)
+  ↵ boolean?
+</code></pre>
+
 ### trail-spawn-fp {#trail-spawn-fp}
 Spawns a trail effect anchored to a first-person socket, stretching toward a world-space endpoint.
 <pre><code class="language-scheme">(trail-spawn-fp
@@ -1193,6 +1662,31 @@ Spawns a world-space trail effect between two points.
   ↵ boolean?
 </code></pre>
 
+### tracer-spawn {#tracer-spawn}
+Fires a tracer streak from one world point to another. It is drawn additively, travels at `speed` meters per second, and is gone once its tail reaches the end point. It is only a visual and hits nothing, so a hitscan weapon traces its shot as usual and spawns a tracer from the muzzle to the hit point. Style keys left out take their defaults. `length` is the streak length and `width` the half width of its bright core in meters, with `glow-width` the half width of the softer glow around it. `min-pixels` keeps the core at least that many pixels wide however far away it is. The streak brightens from `tail-alpha` at its tail to full at its head. `lead` starts the head that many meters along the path. Colors are `r g b` with an optional alpha, from 0 to 255.
+<pre><code class="language-scheme">(tracer-spawn
+  sx, sy, sz : real?
+  ex, ey, ez : real?
+  [style] : alist?)
+  ↵ boolean?
+</code></pre>
+
+| Key | Default |
+| --- | --- |
+| `speed` | 240 |
+| `length` | 1.8 |
+| `width`, `glow-width` | 0.02, 0.09 |
+| `min-pixels` | 1.5 |
+| `tail-alpha` | 0 |
+| `color` | 255 240 190 255 |
+| `glow-color` | 255 140 30 150 |
+| `lead` | 0 |
+
+<pre><code class="language-scheme">(let ((muzzle (fp-point "weapon/held" 0.0 0.076 0.692)))
+  (tracer-spawn (car muzzle) (cadr muzzle) (caddr muzzle) hx hy hz
+                '((speed . 280) (length . 2.2) (color 255 240 180))))
+</code></pre>
+
 ### particle-play {#particle-play}
 Restarts a particle system.
 <pre><code class="language-scheme">(particle-play
@@ -1212,7 +1706,7 @@ Destroys a particle system entity.
 </code></pre>
 
 ### fx-light-spawn {#fx-light-spawn}
-Spawns a receiver-only FX light (tints dynamic receivers, not the baked map lightmap).
+Spawns a receiver-only FX light (tints dynamic receivers, not the baked map lightmap). With a `lifetime` the light despawns after that many seconds, on a network client too.
 <pre><code class="language-scheme">(fx-light-spawn
   id : string?
   x, y, z : real?
@@ -1270,12 +1764,12 @@ Sets an existing dynamic light's color via hue/saturation/value.
 ## Actors {#script-actors}
 
 ### actor-spawn {#actor-spawn}
-Spawns a package-driven actor.
+Spawns a package-driven actor. `kind` is `"sprite"` or `"geo"`.
 <pre><code class="language-scheme">(actor-spawn
   id : string?
   x, y, z : real?
   yaw : real?
-  kind : symbol?
+  kind : string?
   path : string?
   [radius, height] : real?
   [speed, gravity] : real?
@@ -1293,6 +1787,127 @@ Returns an actor's world position as `(x y z)`.
 Returns an actor's yaw, in radians.
 <pre><code class="language-scheme">(actor-yaw
   id : string?) ↵ real?
+</code></pre>
+
+### actor-set-yaw! {#actor-set-yaw}
+Turns an actor to face a yaw, in radians. A sprite actor's facing and a geo actor's rotation are both set, and a geo actor otherwise keeps the yaw it was placed with.
+<pre><code class="language-scheme">(actor-set-yaw!
+  id : string?
+  yaw : real?)
+  ↵ boolean?
+</code></pre>
+
+### actor-set-bone-scale! {#actor-set-bone-scale}
+Changes the proportions of one bone on a skinned geo actor, on top of whatever clip it plays. `size` scales the bone's own part and pushes the joints of its children out by the same amount, while the children keep their size. `length` stretches the part and its children's joints along the bone only. A size and length of 1 remove the bone's scale. When a leg changes, the whole body is raised or lowered so the lowest foot stays on the ground. Returns \#f when the actor has no such bone.
+<pre><code class="language-scheme">(actor-set-bone-scale!
+  id : string?
+  bone : string?
+  size : real?
+  [length : real? = 1])
+  ↵ boolean?
+</code></pre>
+
+### actor-bone-scale {#actor-bone-scale}
+Reads a bone's scale as `(size length)`, which is `(1 1)` for a bone without one. Returns \#f when the actor has no such bone.
+<pre><code class="language-scheme">(actor-bone-scale
+  id : string?
+  bone : string?)
+  ↵ (or list? boolean?)
+</code></pre>
+
+### actor-clear-bone-scales! {#actor-clear-bone-scales}
+Removes every bone scale from an actor, including those its thing-def gave it.
+<pre><code class="language-scheme">(actor-clear-bone-scales!
+  id : string?)
+  ↵ boolean?
+</code></pre>
+
+### actor-set-shader-param! {#actor-set-shader-param}
+Sets a `vec4` uniform for one geo actor's draws, read by the model deform hook described on the @ref assets page. `name` is the uniform as the shader declares it, and an array element such as `"jiggle[2]"` works too. Missing components are 0. The value is uploaded just before the actor draws, in the world and shadow passes, and set back to zero afterwards, so other models never see it. Returns \#f when the actor has no geo.
+<pre><code class="language-scheme">(actor-set-shader-param!
+  id : string?
+  name : string?
+  [x y z w : real? = 0])
+  ↵ boolean?
+</code></pre>
+
+### actor-clear-shader-params! {#actor-clear-shader-params}
+Removes every shader param from an actor.
+<pre><code class="language-scheme">(actor-clear-shader-params!
+  id : string?)
+  ↵ boolean?
+</code></pre>
+
+### actor-sever-bone! {#actor-sever-bone}
+Cuts a bone and everything below it off a rigged actor. The skin is split where the cut bones and the rest carry equal weight, and both open ends are closed with a stump using the `fx/stump` material, which a game can override. A new entity carrying just that part takes over from the same pose and flies off as a small ragdoll, so a cut arm still bends at the elbow. It collides only with world geometry, not with characters, other severed parts, linescans or sight. A part whose bones have no vertices falls back to a single tumbling box. Geo hung on the cut bones, such as a held weapon, goes with the part. `dx dy dz` is the push direction, `speed` its speed in meters a second plus a little lift, `spin` how fast in radians a second it tumbles end over end away from the push, with some random wobble on top and `lifetime` how many seconds the part stays. The oldest part is removed once 48 exist. The part's id is `severed-` followed by the actor's id, a dash and the bone, the same on a network client, which runs the cut itself. Returns the part's id, or \#f when the bone is unknown or already cut.
+<pre><code class="language-scheme">(actor-sever-bone!
+  id, bone : string?
+  [dx dy dz] : real? = 0
+  [speed] : real? = 3
+  [spin] : real? = 6
+  [lifetime] : real? = 20)
+  ↵ (or string? \#f)
+</code></pre>
+
+### actor-hide-bone! {#actor-hide-bone}
+Hides a bone and everything below it on a rigged actor, the way `actor-sever-bone!` does, but drops nothing. The hidden bones collapse, take no hits and get no parts in a later `actor-ragdoll!`, and `actor-restore-bones!` brings them back. Useful for props built into a rig that should vanish when the actor dies. Returns \#f when the bone is unknown or already hidden.
+<pre><code class="language-scheme">(actor-hide-bone!
+  id, bone : string?) ↵ boolean?
+</code></pre>
+
+### actor-ragdoll! {#actor-ragdoll}
+Hands a rigged actor over to physics. Its animation stops, its collider is removed, it becomes a corpse, and each bone with vertices becomes a box from its hitbox, jointed to its parent with swing and twist limits picked from the bone's name, such as elbows, knees, shoulders and the neck. Bones without vertices follow their nearest jointed parent, and cut bones stay hidden. The whole body moves along `dx dy dz` at a third of `speed`, and `hit-bone`'s part, or its nearest jointed parent's, takes the full `speed`, so a shot knee kicks the leg out. The parts collide only with world geometry. At most 16 ragdolls simulate at once, the oldest freezing in place first, and each freezes after `lifetime` seconds. Returns \#f when the actor has no rig or is already a ragdoll.
+<pre><code class="language-scheme">(actor-ragdoll!
+  id : string?
+  [dx dy dz] : real? = 0
+  [speed] : real? = 3
+  [hit-bone] : (or string? \#f) = \#f
+  [lifetime] : real? = 30)
+  ↵ boolean?
+</code></pre>
+
+### physics-blast! {#physics-blast}
+Pushes every simulating ragdoll part and cut-off piece within `radius` of a point that a straight line from the point reaches past world geometry. Each body gains `speed` away from the point and `lift` upward, both fading linearly to zero at `radius`, and cut pieces also tumble. Frozen ragdolls and live actors are not moved, so kill or ragdoll actors first. Returns how many bodies moved.
+<pre><code class="language-scheme">(physics-blast!
+  x, y, z, radius, speed : real?
+  [lift] : real? = 0)
+  ↵ integer?
+</code></pre>
+
+### actor-bone-severed? {#actor-bone-severed}
+Checks whether a bone of an actor has been cut off by `actor-sever-bone!`.
+<pre><code class="language-scheme">(actor-bone-severed?
+  id, bone : string?) ↵ boolean?
+</code></pre>
+
+### actor-restore-bones! {#actor-restore-bones}
+Shows every bone `actor-sever-bone!` hid on an actor again and puts back its uncut skin. Parts already cut off stay where they are.
+<pre><code class="language-scheme">(actor-restore-bones!
+  id : string?) ↵ boolean?
+</code></pre>
+
+### actor-bone-pos {#actor-bone-pos}
+Returns the world position of a bone's joint on a rigged actor as `(x y z)`, or \#f.
+<pre><code class="language-scheme">(actor-bone-pos
+  id, bone : string?)
+  ↵ (or (list real? real? real?) \#f)
+</code></pre>
+
+### actor-bone-springs! {#actor-bone-springs}
+Gives a rigged actor a set of bone springs the engine steps every frame while they are active. Each spec names a bone, the `vec4` shader param to drive (an array element such as `"jiggle[2]"` works, as with `actor-set-shader-param!`), and the spring's stiffness, damping, gain and limit. Each frame the engine samples the bone's world position, smooths its acceleration, drives a damped spring with it and clamps the offset to `limit` meters. The param receives the offset rotated into the actor's yaw frame as `xyz` and the spring's speed as `w`. The optional tuning list sets the integration substep, the longest frame time stepped, and the acceleration smoothing rate, defaulting to `1/120`, `0.1` and `20`. The springs start inactive. Calling this again replaces the set. Returns \#f when the actor has no geo.
+<pre><code class="language-scheme">(actor-bone-springs!
+  id : string?
+  specs : (list (list bone param : string? stiffness damping gain limit : real?) ...)
+  [tuning : (list step max-dt accel-smoothing : real?)])
+  ↵ boolean?
+</code></pre>
+
+### actor-bone-springs-active! {#actor-bone-springs-active}
+Starts or stops an actor's bone springs. Stopping writes zero to every spring's param once and resets the springs, so a restarted set settles in from rest. Returns \#f when the actor has no bone springs.
+<pre><code class="language-scheme">(actor-bone-springs-active!
+  id : string?
+  active? : boolean?)
+  ↵ boolean?
 </code></pre>
 
 ### actor-set-wish {#actor-set-wish}
@@ -1339,6 +1954,14 @@ Checks whether an actor is currently grounded.
   id : string?) ↵ boolean?
 </code></pre>
 
+### actor-jump! {#actor-jump}
+Launches a grounded actor upward at `speed` meters per second, keeping its horizontal velocity. Gravity and the actor's wish carry it from there. Returns \#f when the actor does not exist or is not standing on anything.
+<pre><code class="language-scheme">(actor-jump!
+  id : string?
+  speed : real?)
+  ↵ boolean?
+</code></pre>
+
 ### actor-submerged? {#actor-submerged}
 Checks whether an actor is currently submerged in water.
 <pre><code class="language-scheme">(actor-submerged?
@@ -1358,12 +1981,100 @@ Returns the direction toward the nearest water exit for a submerged actor, or \#
 </code></pre>
 
 ### actor-play-anim {#actor-play-anim}
-Plays an animation clip on an actor.
+Plays an animation clip on an actor or on geo attached to it. `path` is an actor id, optionally followed by attachment names, such as `guard/held` or `guard/held/sight`. Actor ids that themselves contain a slash, such as prefab ids, are matched first, and the longest id that exists wins. A sprite actor plays a `.spanim` clip, and a skinned geo actor or attachment plays a clip from its animation bank. Returns \#f when the path or the clip does not exist.
 <pre><code class="language-scheme">(actor-play-anim
-  id : string?
+  path : string?
   clip : string?
   [loop] : boolean? = \#t)
   ↵ boolean?
+</code></pre>
+
+### actor-anim-busy? {#actor-anim-busy}
+Returns \#t while a non-looping clip started by `actor-play-anim` is still playing on the actor or attachment `path` names.
+<pre><code class="language-scheme">(actor-anim-busy?
+  path : string?) ↵ boolean?
+</code></pre>
+
+### actor-attach-geo {#actor-attach-geo}
+Pins a geo to a bone of a skinned geo actor, Half-Life attachment style. `path` is the actor id, or an attachment path such as `guard/held` to hang the geo on the held geo instead, which then needs bones of its own. `point` is a bone name or the name of an attachment declared in the host geo's `(attachments ...)` block (see @ref filegeo). The geo follows the bone's pose each frame with the offset applied relative to that point, pitch yaw roll in radians, and a uniform scale. A skinned geo gets an animation player over its skeleton's clip bank, driven with `actor-play-anim` on its path. A second call with the same `name` on the same host replaces the earlier attachment, along with anything attached to it.
+<pre><code class="language-scheme">(actor-attach-geo
+  path : string?
+  name : string?
+  point : string?
+  geo : string?
+  [x y z] : real? = 0
+  [pitch yaw roll] : real? = 0
+  [scale] : real? = 1)
+  ↵ boolean?
+</code></pre>
+
+### actor-detach {#actor-detach}
+Removes an attachment made by `actor-attach-geo`, along with anything attached to it. `path` names the host the attachment hangs on.
+<pre><code class="language-scheme">(actor-detach
+  path : string?
+  name : string?) ↵ boolean?
+</code></pre>
+
+### avatars {#avatars}
+Returns the ids of the stand-ins spawned from `on-player-appear` for other players, on a network client or a listen-server host. Empty anywhere else.
+<pre><code class="language-scheme">(avatars) ↵ (listof string?)
+</code></pre>
+
+### avatar-nudge! {#avatar-nudge}
+Moves geo hung on a stand-in by an offset on top of where its attachment places it, in the geo's own frame, with an optional rotation in radians. The offset stays until the next call, and `(avatar-nudge! path 0 0 0)` removes it, so a script can kick a held weapon back on a shot and ease it home over a few frames. `path` names the attachment, such as `"player:player-2/held"`. Allowed in `present` scope. Returns `#f` for anything that isn't geo attached to a stand-in.
+<pre><code class="language-scheme">(avatar-nudge!
+  path : string?
+  x, y, z : real?
+  [pitch, yaw, roll : real?])
+  ↵ boolean?
+</code></pre>
+
+### avatar-ragdoll! {#avatar-ragdoll}
+Turns a stand-in into a ragdoll on this process only, pushed along `dx dy dz` at `speed` metres per second. Nothing is sent to other processes, so each one drops its own copy of a dead player. The stand-in keeps its geo and attachments, and the engine stops moving it from snapshots until `avatar-revive!`. Allowed in `present` scope. Returns `#f` when `id` isn't a stand-in, is already a ragdoll, or has no skinned geo.
+<pre><code class="language-scheme">(avatar-ragdoll!
+  id : string?
+  [dx, dy, dz : real? = 0]
+  [speed : real? = 3])
+  ↵ boolean?
+</code></pre>
+
+### avatar-revive! {#avatar-revive}
+Ends a stand-in's ragdoll and gives back the animation it was playing, so the engine moves it from snapshots again, such as when the player respawns. Allowed in `present` scope. Returns `#f` when `id` isn't a ragdolled stand-in.
+<pre><code class="language-scheme">(avatar-revive!
+  id : string?) ↵ boolean?
+</code></pre>
+
+### avatar-velocity {#avatar-velocity}
+Returns a stand-in's velocity over the last tick of what the client draws, as `(x y z)`, or `#f` when `id` isn't a stand-in.
+<pre><code class="language-scheme">(avatar-velocity
+  id : string?) ↵ (or (list real? real? real?) #f)
+</code></pre>
+
+### avatar-play-anim {#avatar-play-anim}
+`actor-play-anim` for a stand-in, allowed in `present` scope. Returns `#f` for anything that isn't a stand-in or attached to one.
+<pre><code class="language-scheme">(avatar-play-anim
+  path : string?
+  clip : string?
+  [loop : boolean? = #t]) ↵ boolean?
+</code></pre>
+
+### avatar-attach-geo {#avatar-attach-geo}
+`actor-attach-geo` for a stand-in, allowed in `present` scope.
+<pre><code class="language-scheme">(avatar-attach-geo
+  path : string?
+  name : string?
+  point : string?
+  geo : string?
+  [x, y, z : real?]
+  [pitch, yaw, roll : real?]
+  [scale : real?]) ↵ boolean?
+</code></pre>
+
+### avatar-detach {#avatar-detach}
+`actor-detach` for a stand-in, allowed in `present` scope.
+<pre><code class="language-scheme">(avatar-detach
+  path : string?
+  name : string?) ↵ boolean?
 </code></pre>
 
 ### actor-tags {#actor-tags}
@@ -1438,7 +2149,7 @@ Clears all queued debug lines.
 </code></pre>
 
 ### pvs-can-see {#pvs-can-see}
-Checks whether two points' BSP leaves are mutually visible in the map's precomputed PVS.
+Checks whether two points' BSP leaves are mutually visible in the map's precomputed PVS. Also false when a closed door separates the first point's area from the second's.
 <pre><code class="language-scheme">(pvs-can-see
   x0, y0, z0 : real?
   x1, y1, z1 : real?)
@@ -1455,7 +2166,7 @@ Floods a gameplay sound outward through the map's navigation graph; returns `(id
 </code></pre>
 
 ### hitscan-actors {#hitscan-actors}
-Linescans for the nearest actor hit along a ray; returns `(id part distance x y z)` or \#f.
+Linescans for the nearest actor hit along a ray; returns `(id part distance x y z)` or \#f. Sprite actors are hit on their billboard and `part` names the sprite part. Rigged geo actors are hit on per-bone boxes built from the vertices each bone carries most weight for, posed with the actor, and `part` names the bone. Bones cut off with `actor-sever-bone!` and corpses are skipped.
 <pre><code class="language-scheme">(hitscan-actors
   ox, oy, oz : real?
   dx, dy, dz : real?
@@ -1595,10 +2306,11 @@ Sets a mover's open/closed target, progress, and optionally its locked state.
 ## Navigation {#navigation}
 
 ### nav-set-goal-pos {#nav-set-goal-pos}
-Sets an actor's pathfinding goal to a fixed ground position.
+Sets an actor's pathfinding goal to a fixed ground position. Pass the target's feet height as `y` when it can be on another floor; without it the goal height is the actor's own.
 <pre><code class="language-scheme">(nav-set-goal-pos
   id : string?
-  x, z : real?)
+  x, z : real?
+  [y] : real?)
   ↵ boolean?
 </code></pre>
 
@@ -1627,9 +2339,9 @@ Checks whether an actor currently has a planned path.
 </code></pre>
 
 ### nav-path-direction {#nav-path-direction}
-Returns the normalized direction from an actor toward its current waypoint (or, once past the last waypoint, straight at the goal), or \#f if the actor has no path or its goal is known-unreachable.
+Returns the normalized horizontal direction from an actor toward its current waypoint (or, once past the last waypoint, straight at the goal) as `(dx dz)`, or \#f if the actor has no path or its goal is known-unreachable.
 <pre><code class="language-scheme">(nav-path-direction
-  id : string?) ↵ (or (list real? real? real?) \#f)
+  id : string?) ↵ (or (list real? real?) \#f)
 </code></pre>
 
 ### nav-path-altitude {#nav-path-altitude}
@@ -1764,6 +2476,18 @@ Called every update frame, with the frame delta time in seconds.
   dt : real?)
 </code></pre>
 
+### present {#present}
+Called every drawn frame in `present` scope, with the frame delta time in seconds. It runs on a network client, which runs no `tick`.
+<pre><code class="language-scheme">(present
+  dt : real?)
+</code></pre>
+
+### predict {#predict}
+Called on a network client in `predict` scope once for every command it sends, after its own movement for that command was predicted, with the tick length in seconds. `action-down?` and `action-pressed?` read that command, so the hook sees the same input the server will apply. It is the place to play a player's own feedback at once, such as a shot's kick and sound, by raising events declared `(predict \#t)`. It doesn't run on a server or in single-player, where `tick` raises the same events.
+<pre><code class="language-scheme">(predict
+  dt : real?)
+</code></pre>
+
 ### draw-hud {#draw-hud}
 Called when the HUD render pass runs.
 <pre><code class="language-scheme">(draw-hud)
@@ -1778,6 +2502,12 @@ Called every menu frame, for title screen chrome.
 Called when a `.spanim` hold cue with `(hint "name")` is entered.
 <pre><code class="language-scheme">(on-sprite-hint
   source, name : string?)
+</code></pre>
+
+### on-anim-event {#on-anim-event}
+Called when a skinned geo's clip playback crosses an `event` frame declared in its `.anim` bank. `source` is the entity id, or the socket name for first-person geo, followed by attachment names for attached geo, such as `guard/held` or `weapon/held`. It is the same path that addresses the geo in `actor-play-anim` and `fp-play-anim`. `clip` is the clip name. A looping clip fires its events every pass.
+<pre><code class="language-scheme">(on-anim-event
+  source, event, clip : string?)
 </code></pre>
 
 ### on-sight {#on-sight}

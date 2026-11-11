@@ -25,3 +25,11 @@
 [submodule "lib/TinySoundFont"]
 	path = lib/TinySoundFont
 	url = https://github.com/schellingb/TinySoundFont.git
+[submodule "lib/enet"]
+	path = lib/enet
+	url = https://github.com/lsalzman/enet.git
+	shallow = true
+[submodule "lib/monocypher"]
+	path = lib/monocypher
+	url = https://github.com/LoupVaillant/Monocypher.git
+	shallow = true

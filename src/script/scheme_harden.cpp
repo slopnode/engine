@@ -1,6 +1,7 @@
 #include "script/scheme_harden.hpp"
 
 #include <s7.h>
+#include <s7_slopengine.h>
 
 namespace slopengine {
 
@@ -22,6 +23,7 @@ s7_pointer g_note_script_error(s7_scheme* sc, s7_pointer) {
 
 void stubDisabled(s7_scheme* sc, const char* name) {
     s7_define_function(sc, name, g_disabled, 0, 0, true, "disabled in slopengine");
+    slopengine_s7_set_initial_value(sc, s7_make_symbol(sc, name), s7_name_to_value(sc, name));
 }
 
 void disableAutoload(s7_scheme* sc) {
@@ -87,6 +89,9 @@ void hardenSchemeRuntime(s7_scheme* scheme) {
         "file-exists?",
         "directory->list",
         "file-mtime",
+        "openlet",
+        "symbol-access",
+        "procedure-setter",
     };
 
     for (const char* name : kDisabled) {

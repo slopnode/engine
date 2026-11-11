@@ -1,18 +1,22 @@
 #pragma once
 
+#include "core/sim_clock.hpp"
 #include "map/brush.hpp"
 #include "physics/motored_body.hpp"
+#include "physics/prop_box.hpp"
 
 #include <Jolt/Jolt.h>
 #include <Jolt/Core/JobSystemThreadPool.h>
 #include <Jolt/Core/TempAllocator.h>
 #include <Jolt/Physics/Character/CharacterVirtual.h>
 #include <Jolt/Physics/PhysicsSystem.h>
+#include <Jolt/Physics/Ragdoll/Ragdoll.h>
 
 #include <cstdint>
 #include <memory>
 #include <optional>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -30,6 +34,21 @@ struct CharacterStep {
      *  water-exit assistance so it can only ever fire near an actual shoreline/lip, never
      *  arbitrarily deep underwater. */
     bool nearWaterSurface = false;
+};
+
+/** One rigid part of a ragdoll, in world space. The joint to @p parent sits at @p pivot and
+ *  twists about @p twistAxis, swinging up to @p swing radians and twisting up to @p twist. */
+struct RagdollPartDesc {
+    int parent = -1;
+    Vector3 center{0.0f, 0.0f, 0.0f};
+    Quaternion rotation{0.0f, 0.0f, 0.0f, 1.0f};
+    Vector3 halfExtents{0.05f, 0.05f, 0.05f};
+    Vector3 pivot{0.0f, 0.0f, 0.0f};
+    Vector3 twistAxis{0.0f, 1.0f, 0.0f};
+    float swing = 0.5f;
+    float twist = 0.3f;
+    Vector3 velocity{0.0f, 0.0f, 0.0f};
+    Vector3 angularVelocity{0.0f, 0.0f, 0.0f};
 };
 
 struct RayCastHit {
@@ -67,6 +86,40 @@ struct PhysicsWorld {
     void destroyKinematic(std::uint64_t id);
     void clearKinematics();
     bool hasKinematic(std::uint64_t id) const;
+
+    /** Free-tumbling box on its own layer: collides with world hulls only, so it never
+     *  blocks linescans, sight, characters or other debris. */
+    void createDebrisBox(
+        std::uint64_t id,
+        Vector3 center,
+        Vector3 halfExtents,
+        Quaternion rotation,
+        Vector3 velocity,
+        Vector3 angularVelocity);
+    bool debrisPose(std::uint64_t id, Vector3& center, Quaternion& rotation) const;
+    bool hasDebris(std::uint64_t id) const;
+    void destroyDebris(std::uint64_t id);
+    void clearDebris();
+
+    void createPropBoxes(
+        std::uint64_t id,
+        Vector3 position,
+        Quaternion rotation,
+        Vector3 scale,
+        const std::vector<PropBox>& boxes);
+    bool hasProp(std::uint64_t id) const;
+    std::size_t propBoxCount(std::uint64_t id) const;
+    void destroyProp(std::uint64_t id);
+    void clearProps();
+
+    /** Jointed ragdoll on the debris layer. Parts must list parents before children. */
+    bool createRagdoll(std::uint64_t id, const std::vector<RagdollPartDesc>& parts);
+    /** World rotation and translation of each part, in the order they were created. */
+    bool ragdollPartTransforms(std::uint64_t id, std::vector<Matrix>& out) const;
+    bool hasRagdoll(std::uint64_t id) const;
+    void destroyRagdoll(std::uint64_t id);
+    void clearRagdolls();
+    int blast(Vector3 center, float radius, float speed, float lift);
     bool tryGetKinematicAabb(std::uint64_t id, Vector3& outMin, Vector3& outMax) const;
     bool kinematicAllowsSlide(JPH::BodyID bodyId) const;
 
@@ -86,8 +139,14 @@ struct PhysicsWorld {
     }
 
     void setCharacterPosition(std::uint64_t id, float x, float y, float z);
+    void placeCharacter(std::uint64_t id, float x, float y, float z);
+    void resetCharacterState(std::uint64_t id, const JPH::RVec3& position, const JPH::Vec3& velocity);
+    void stepCharacterAlone(const CharacterStep& step);
+    void markPlayerCharacter(std::uint64_t id);
+    std::uint8_t characterBlockMask(std::uint64_t id) const;
 
-    void update(float frameDt, const std::vector<CharacterStep>& steps);
+    void step(const std::vector<CharacterStep>& steps);
+    void stepBodies();
 
     std::optional<SphereCastHit> castSphere(
         Vector3 origin,
@@ -107,6 +166,7 @@ struct PhysicsWorld {
     JPH::RVec3 characterPosition(std::uint64_t id) const;
     JPH::Vec3 characterVelocity(std::uint64_t id) const;
     bool characterSupported(std::uint64_t id) const;
+    bool launchCharacter(std::uint64_t id, float upSpeed);
 
     /** Scans a ring of directions for one with a climbable water-exit ledge within
      *  motor.waterExitReach (the same probe tryWaterExitAssist uses for the character's current
@@ -195,8 +255,7 @@ private:
         JPH::Vec3 wishDir) const;
     void applyCharacterSoftSeparation(const std::vector<CharacterStep>& steps);
 
-    static constexpr float kFixedDt = 1.0f / 60.0f;
-    static constexpr int kMaxSubsteps = 4;
+    static constexpr float kFixedDt = kSimTickDt;
 
     std::unique_ptr<JPH::TempAllocatorImpl> tempAllocator_;
     std::unique_ptr<JPH::JobSystemThreadPool> jobSystem_;
@@ -206,12 +265,15 @@ private:
     std::unique_ptr<JPH::PhysicsSystem> system_;
     std::unordered_map<std::uint64_t, CharacterEntry> characters_;
     std::unordered_map<std::uint64_t, JPH::BodyID> kinematicBodies_;
+    std::unordered_map<std::uint64_t, std::vector<JPH::BodyID>> propBodies_;
     std::unordered_map<std::uint32_t, std::uint64_t> kinematicBodyToEntity_;
     std::unordered_map<std::uint64_t, bool> kinematicSlide_;
+    std::unordered_map<std::uint64_t, JPH::BodyID> debrisBodies_;
+    std::unordered_map<std::uint64_t, JPH::Ref<JPH::Ragdoll>> ragdolls_;
     std::uint64_t playerId_ = 0;
+    std::unordered_set<std::uint64_t> playerCharacters_;
     std::vector<JPH::BodyID> staticBodies_;
     std::unordered_map<JPH::uint32, std::uint8_t> staticBodyBlocks_;
-    float accumulator_ = 0.0f;
     bool factoryInitialized_ = false;
 };
 

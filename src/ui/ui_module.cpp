@@ -3,9 +3,12 @@
 #include "assets/asset_services.hpp"
 #include "camera/camera_path_player.hpp"
 #include "camera/components.hpp"
+#include "core/engine_version.hpp"
 #include "core/frame_perf.hpp"
+#include "render/system_perf.hpp"
 #include "core/log.hpp"
 #include "game/game_state.hpp"
+#include "game/net_control.hpp"
 #include "game/user_settings.hpp"
 #include "input/action_registry.hpp"
 #include "input/actions.hpp"
@@ -20,6 +23,8 @@
 #include "map/light_sample.hpp"
 #include "map/nav_graph.hpp"
 #include "map/pvs.hpp"
+#include "net/net_protocol.hpp"
+#include "net/net_schema.hpp"
 #include "physics/components.hpp"
 #include "physics/physics_module.hpp"
 #include "physics/rigid_mover.hpp"
@@ -28,6 +33,7 @@
 #include "render/components.hpp"
 #include "render/dynamic_light.hpp"
 #include "render/dynamic_light_shadows.hpp"
+#include "render/msaa_target.hpp"
 #include "render/render_context.hpp"
 #include "render/sprite_animator.hpp"
 #include "script/scheme_harden.hpp"
@@ -48,6 +54,8 @@
 #include <cstdio>
 #include <cstring>
 #include <raylib.h>
+#include <rlgl.h>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -77,12 +85,21 @@ void logConsoleMessage(ConsoleState& console, const std::string& message) {
     }
 }
 
+bool debugUiIsLight() {
+    const ImVec4 background = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
+    return 0.2126f * background.x + 0.7152f * background.y + 0.0722f * background.z > 0.5f;
+}
+
+ImVec4 debugUiColor(ImVec4 onDark, ImVec4 onLight) {
+    return debugUiIsLight() ? onLight : onDark;
+}
+
 ImVec4 consoleLogLineColor(std::string_view line) {
     if (line.rfind("[ERROR]", 0) == 0 || line.rfind("[FATAL]", 0) == 0) {
-        return ImVec4(1.0f, 0.38f, 0.38f, 1.0f);
+        return debugUiColor(ImVec4(1.0f, 0.38f, 0.38f, 1.0f), ImVec4(0.72f, 0.08f, 0.08f, 1.0f));
     }
     if (line.rfind("[WARN]", 0) == 0) {
-        return ImVec4(1.0f, 0.82f, 0.2f, 1.0f);
+        return debugUiColor(ImVec4(1.0f, 0.82f, 0.2f, 1.0f), ImVec4(0.62f, 0.38f, 0.0f, 1.0f));
     }
     if (line.rfind("[TRACE]", 0) == 0 || line.rfind("[DEBUG]", 0) == 0) {
         return ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
@@ -172,6 +189,643 @@ void applyControlsDraft(UserSettings& settings, const ControlsSettings& draft) {
     settings.save();
 }
 
+std::string netStatusLine(const NetStatus& status) {
+    switch (status.kind) {
+    case NetStatusKind::Hosting: {
+        const NetSessionKind* kind = netSchema().findSessionKind(status.session);
+        const std::string title = kind != nullptr ? kind->title : status.session;
+        return "Hosting " + title + " on " + status.address + ", " + std::to_string(status.players) + " of " +
+            std::to_string(status.maxPlayers) + " players" +
+            (status.bots > 0 ? ", " + std::to_string(status.bots) + (status.bots == 1 ? " bot" : " bots") : "");
+    }
+    case NetStatusKind::Connecting:
+        return "Connecting to " + status.address;
+    case NetStatusKind::Connected:
+        return "Connected to " + status.address;
+    case NetStatusKind::Offline:
+        break;
+    }
+    return "Offline";
+}
+
+NetStatus currentNetStatus(const flecs::world& world) {
+    return world.has<NetStatus>() ? world.get<NetStatus>() : NetStatus{};
+}
+
+void openHostGame(SettingsUiState& settingsUi) {
+    settingsUi.hostOpen = true;
+    settingsUi.hostPending = false;
+    settingsUi.joinOpen = false;
+}
+
+void openJoinGame(SettingsUiState& settingsUi, const UserSettings& settings) {
+    settingsUi.joinOpen = true;
+    settingsUi.joinPending = false;
+    settingsUi.hostOpen = false;
+    std::snprintf(settingsUi.joinAddress, sizeof(settingsUi.joinAddress), "%s", settings.ui.joinAddress.c_str());
+}
+
+void openProfile(SettingsUiState& settingsUi, const UserSettings& settings) {
+    settingsUi.profileOpen = true;
+    std::snprintf(settingsUi.profileName, sizeof(settingsUi.profileName), "%s", settings.ui.playerName.c_str());
+    settingsUi.profileValues.clear();
+    for (const NetField* field : netSchema().profileFields()) {
+        NetValue value = field->defaultValue;
+        const auto found = settings.ui.profileValues.find(field->name);
+        NetValue parsed;
+        if (found != settings.ui.profileValues.end() && netValueFromText(field->type, found->second, parsed)) {
+            value = std::move(parsed);
+        }
+        settingsUi.profileValues.push_back(netValueText(value));
+    }
+}
+
+void drawProfileField(const NetField& field, std::string& text) {
+    NetValue value;
+    if (!netValueFromText(field.type, text, value)) {
+        value = field.defaultValue;
+    }
+    const NetType& type = field.type;
+    const char* label = field.profile.c_str();
+    switch (type.kind) {
+    case NetTypeKind::Bool:
+        ImGui::Checkbox(label, &value.flag);
+        break;
+    case NetTypeKind::Int:
+        if (type.hi - type.lo <= 1000) {
+            int current = static_cast<int>(value.integer);
+            ImGui::SliderInt(label, &current, static_cast<int>(type.lo), static_cast<int>(type.hi));
+            value.integer = current;
+        } else {
+            int current = static_cast<int>(std::clamp<std::int64_t>(value.integer, INT32_MIN, INT32_MAX));
+            ImGui::InputInt(label, &current);
+            value.integer = std::clamp<std::int64_t>(current, type.lo, type.hi);
+        }
+        break;
+    case NetTypeKind::Real: {
+        float current = static_cast<float>(value.real);
+        ImGui::SliderFloat(label, &current, static_cast<float>(type.realLo), static_cast<float>(type.realHi));
+        value.real = std::clamp(static_cast<double>(current), type.realLo, type.realHi);
+        break;
+    }
+    case NetTypeKind::Symbol: {
+        if (ImGui::BeginCombo(label, value.text.c_str())) {
+            for (const std::string& symbol : type.symbols) {
+                if (ImGui::Selectable(symbol.c_str(), symbol == value.text)) {
+                    value.text = symbol;
+                }
+            }
+            ImGui::EndCombo();
+        }
+        break;
+    }
+    case NetTypeKind::String: {
+        char buffer[256] = {};
+        std::snprintf(buffer, sizeof(buffer), "%s", value.text.c_str());
+        const std::size_t limit = std::min<std::size_t>(sizeof(buffer), static_cast<std::size_t>(type.maxCount) + 1);
+        ImGui::InputText(label, buffer, limit);
+        value.text = buffer;
+        break;
+    }
+    default:
+        break;
+    }
+    NetValue settled;
+    text = netValueFromText(type, netValueText(value), settled) ? netValueText(settled) : netValueText(field.defaultValue);
+}
+
+void settleNetWindows(SettingsUiState& settingsUi, const NetStatus& status) {
+    if (settingsUi.hostPending && status.kind == NetStatusKind::Hosting) {
+        settingsUi.hostOpen = false;
+        settingsUi.hostPending = false;
+    }
+    if (settingsUi.joinPending && status.kind == NetStatusKind::Connected) {
+        settingsUi.joinOpen = false;
+        settingsUi.joinPending = false;
+    }
+}
+
+struct HostMapChoice {
+    std::string id;
+    std::string name;
+};
+
+std::vector<HostMapChoice> hostMapChoices(AssetStore& assets, const NetSessionKind& kind) {
+    const std::vector<AssetStore::MapListEntry> maps = assets.listMaps();
+    std::vector<HostMapChoice> out;
+    if (kind.maps.empty()) {
+        for (const AssetStore::MapListEntry& entry : maps) {
+            out.push_back({entry.id, entry.name});
+        }
+        return out;
+    }
+    for (const std::string& id : kind.maps) {
+        const auto found = std::find_if(maps.begin(), maps.end(), [&](const AssetStore::MapListEntry& entry) {
+            return entry.id == id;
+        });
+        out.push_back({id, found != maps.end() ? found->name : id});
+    }
+    return out;
+}
+
+void drawHostGame(
+    flecs::world world,
+    AssetStore& assets,
+    SettingsUiState& settingsUi,
+    const SlopUiTheme& theme,
+    const SlopUiFonts& fonts) {
+    const std::vector<NetSessionKind>& kinds = netSchema().sessionKinds();
+    if (!settingsUi.hostOpen || kinds.empty()) {
+        return;
+    }
+    ImGui::SetNextWindowSize({420.0f, 0.0f}, ImGuiCond_Always);
+    if (!beginThemedWindow(theme, fonts, &assets, "Host Game", &settingsUi.hostOpen, ImGuiWindowFlags_NoResize)) {
+        ImGui::End();
+        return;
+    }
+    settingsUi.hostSession = std::clamp(settingsUi.hostSession, 0, static_cast<int>(kinds.size()) - 1);
+    const NetSessionKind& current = kinds[static_cast<std::size_t>(settingsUi.hostSession)];
+    if (ImGui::BeginCombo("Game", current.title.c_str())) {
+        for (int i = 0; i < static_cast<int>(kinds.size()); ++i) {
+            const bool selected = i == settingsUi.hostSession;
+            if (ImGui::Selectable(kinds[static_cast<std::size_t>(i)].title.c_str(), selected) && !selected) {
+                settingsUi.hostSession = i;
+                settingsUi.hostMap = 0;
+                settingsUi.hostMaxPlayers = 0;
+            }
+        }
+        ImGui::EndCombo();
+    }
+    const NetSessionKind& kind = kinds[static_cast<std::size_t>(settingsUi.hostSession)];
+    const std::vector<HostMapChoice> maps = hostMapChoices(assets, kind);
+    if (!maps.empty()) {
+        settingsUi.hostMap = std::clamp(settingsUi.hostMap, 0, static_cast<int>(maps.size()) - 1);
+        if (ImGui::BeginCombo("Map", maps[static_cast<std::size_t>(settingsUi.hostMap)].name.c_str())) {
+            for (int i = 0; i < static_cast<int>(maps.size()); ++i) {
+                if (ImGui::Selectable(maps[static_cast<std::size_t>(i)].name.c_str(), i == settingsUi.hostMap)) {
+                    settingsUi.hostMap = i;
+                }
+            }
+            ImGui::EndCombo();
+        }
+    } else {
+        ImGui::TextDisabled("(no maps)");
+    }
+    if (ImGui::InputInt("Port", &settingsUi.hostPort)) {
+        settingsUi.hostPort = std::clamp(settingsUi.hostPort, 1, 65535);
+    }
+    if (settingsUi.hostMaxPlayers <= 0) {
+        settingsUi.hostMaxPlayers = kind.maxPlayers;
+    }
+    if (kind.maxPlayers > kind.minPlayers) {
+        ImGui::SliderInt("Max Players", &settingsUi.hostMaxPlayers, std::max(2, kind.minPlayers), kind.maxPlayers);
+    }
+    settingsUi.hostMaxPlayers = std::clamp(settingsUi.hostMaxPlayers, kind.minPlayers, kind.maxPlayers);
+    const std::vector<std::string> behaviors = assets.listBotScripts();
+    const bool botsSupported = currentNetStatus(world).botsSupported && !behaviors.empty();
+    if (botsSupported) {
+        ImGui::SliderInt("Bots", &settingsUi.hostBots, 0, std::max(0, settingsUi.hostMaxPlayers - 1));
+        settingsUi.hostBots = std::clamp(settingsUi.hostBots, 0, std::max(0, settingsUi.hostMaxPlayers - 1));
+        settingsUi.hostBotBehavior = std::clamp(settingsUi.hostBotBehavior, 0, static_cast<int>(behaviors.size()) - 1);
+        if (settingsUi.hostBots > 0 && behaviors.size() > 1 &&
+            ImGui::BeginCombo("Bot", behaviors[static_cast<std::size_t>(settingsUi.hostBotBehavior)].c_str())) {
+            for (int i = 0; i < static_cast<int>(behaviors.size()); ++i) {
+                if (ImGui::Selectable(behaviors[static_cast<std::size_t>(i)].c_str(), i == settingsUi.hostBotBehavior)) {
+                    settingsUi.hostBotBehavior = i;
+                }
+            }
+            ImGui::EndCombo();
+        }
+    }
+
+    ImGui::Separator();
+    if (maps.empty()) {
+        ImGui::BeginDisabled();
+    }
+    if (themedButton(theme, fonts, &assets, "Host", {}, true, kDefaultIconSet, "server") && !maps.empty()) {
+        NetControlRequest request;
+        request.kind = NetControlKind::Host;
+        request.address = std::to_string(settingsUi.hostPort);
+        request.session = kind.name;
+        request.map = maps[static_cast<std::size_t>(settingsUi.hostMap)].id;
+        request.maxPlayers = settingsUi.hostMaxPlayers;
+        if (botsSupported) {
+            request.bots = settingsUi.hostBots;
+            request.botBehavior = behaviors[static_cast<std::size_t>(settingsUi.hostBotBehavior)];
+        }
+        requestNetControl(std::move(request));
+        settingsUi.hostPending = true;
+        playUiSound(world, UiSoundKind::Confirm);
+    }
+    if (maps.empty()) {
+        ImGui::EndDisabled();
+    }
+    ImGui::End();
+}
+
+void drawJoinGame(
+    flecs::world world,
+    AssetStore& assets,
+    SettingsUiState& settingsUi,
+    UserSettings& settings,
+    const NetStatus& status,
+    const SlopUiTheme& theme,
+    const SlopUiFonts& fonts) {
+    if (!settingsUi.joinOpen) {
+        return;
+    }
+    ImGui::SetNextWindowSize({420.0f, 0.0f}, ImGuiCond_Always);
+    if (!beginThemedWindow(theme, fonts, &assets, "Join Game", &settingsUi.joinOpen, ImGuiWindowFlags_NoResize)) {
+        ImGui::End();
+        return;
+    }
+    const bool connecting = settingsUi.joinPending && status.kind == NetStatusKind::Connecting;
+    if (connecting) {
+        ImGui::BeginDisabled();
+    }
+    const bool entered = ImGui::InputText(
+        "Address", settingsUi.joinAddress, sizeof(settingsUi.joinAddress), ImGuiInputTextFlags_EnterReturnsTrue);
+    if (connecting) {
+        ImGui::EndDisabled();
+    }
+    if (connecting) {
+        ImGui::TextUnformatted(netStatusLine(status).c_str());
+    }
+    ImGui::Separator();
+    if (connecting) {
+        if (themedButton(theme, fonts, &assets, "Cancel", {}, false, kDefaultIconSet, "cancel")) {
+            requestNetControl(NetControlRequest{});
+            settingsUi.joinPending = false;
+            playUiSound(world, UiSoundKind::Back);
+        }
+    } else {
+        std::string address = settingsUi.joinAddress;
+        address.erase(0, address.find_first_not_of(" \t"));
+        address.erase(address.find_last_not_of(" \t") + 1);
+        if (address.empty()) {
+            ImGui::BeginDisabled();
+        }
+        const bool clicked = themedButton(theme, fonts, &assets, "Join", {}, true, kDefaultIconSet, "connect");
+        if (address.empty()) {
+            ImGui::EndDisabled();
+        }
+        if ((clicked || entered) && !address.empty()) {
+            if (address.find(':') == std::string::npos) {
+                address += ":" + std::to_string(kDefaultNetPort);
+            }
+            if (settings.ui.joinAddress != address) {
+                settings.ui.joinAddress = address;
+                settings.save();
+            }
+            NetControlRequest request;
+            request.kind = NetControlKind::Join;
+            request.address = address;
+            requestNetControl(std::move(request));
+            settingsUi.joinPending = true;
+            playUiSound(world, UiSoundKind::Confirm);
+        }
+    }
+    ImGui::End();
+}
+
+void drawProfile(
+    flecs::world world,
+    AssetStore& assets,
+    SettingsUiState& settingsUi,
+    UserSettings& settings,
+    const SlopUiTheme& theme,
+    const SlopUiFonts& fonts) {
+    if (!settingsUi.profileOpen) {
+        return;
+    }
+    ImGui::SetNextWindowSize({420.0f, 0.0f}, ImGuiCond_Always);
+    if (!beginThemedWindow(theme, fonts, &assets, "Profile", &settingsUi.profileOpen, ImGuiWindowFlags_NoResize)) {
+        ImGui::End();
+        return;
+    }
+    const bool entered = ImGui::InputText(
+        "Name", settingsUi.profileName, sizeof(settingsUi.profileName), ImGuiInputTextFlags_EnterReturnsTrue);
+    const std::string name = sanitizeNetDisplayName(settingsUi.profileName);
+    const std::vector<const NetField*> fields = netSchema().profileFields();
+    settingsUi.profileValues.resize(fields.size());
+    for (std::size_t i = 0; i < fields.size(); ++i) {
+        ImGui::PushID(fields[i]->name.c_str());
+        drawProfileField(*fields[i], settingsUi.profileValues[i]);
+        ImGui::PopID();
+    }
+    ImGui::Separator();
+    if (name.empty()) {
+        ImGui::BeginDisabled();
+    }
+    const bool clicked = themedButton(theme, fonts, &assets, "Save", {}, true, kDefaultIconSet, "accept");
+    if (name.empty()) {
+        ImGui::EndDisabled();
+    }
+    if ((clicked || entered) && !name.empty()) {
+        bool changed = settings.ui.playerName != name;
+        settings.ui.playerName = name;
+        for (std::size_t i = 0; i < fields.size(); ++i) {
+            std::string& stored = settings.ui.profileValues[fields[i]->name];
+            changed = changed || stored != settingsUi.profileValues[i];
+            stored = settingsUi.profileValues[i];
+        }
+        if (changed) {
+            settings.save();
+        }
+        settingsUi.profileOpen = false;
+        playUiSound(world, UiSoundKind::Confirm);
+    }
+    ImGui::End();
+}
+
+struct CreditEntry {
+    const char* name;
+    const char* copyright;
+    const char* license;
+    const char* url;
+};
+
+constexpr CreditEntry kLibraryCredits[] = {
+    {"flecs", "Sander Mertens", "MIT", "https://github.com/SanderMertens/flecs"},
+    {"raylib", "Ramon Santamaria", "zlib", "https://www.raylib.com"},
+    {"GLFW", "Marcus Geelnard, Camilla Lowy", "zlib", "https://www.glfw.org"},
+    {"Dear ImGui", "Omar Cornut", "MIT", "https://github.com/ocornut/imgui"},
+    {"rlImGui", "Jeffery Myers", "zlib", "https://github.com/raylib-extras/rlImGui"},
+    {"Jolt Physics", "Jorrit Rouwe", "MIT", "https://github.com/jrouwe/JoltPhysics"},
+    {"Recast & Detour", "Mikko Mononen", "zlib", "https://github.com/recastnavigation/recastnavigation"},
+    {"s7 Scheme", "Bill Schottstaedt, CCRMA", "BSD-style (Snd)", "https://ccrma.stanford.edu/software/snd/snd/s7.html"},
+    {"SoLoud", "Jari Komppa", "zlib", "https://solhsa.com/soloud/"},
+    {"miniaudio", "David Reid", "MIT-0 or public domain", "https://miniaud.io"},
+    {"dr_libs", "David Reid", "MIT-0 or public domain", "https://github.com/mackron/dr_libs"},
+    {"stb", "Sean Barrett", "MIT or public domain", "https://github.com/nothings/stb"},
+    {"TinySoundFont", "Bernhard Schelling", "MIT", "https://github.com/schellingb/TinySoundFont"},
+    {"ENet", "Lee Salzman", "MIT", "http://enet.bespin.org"},
+    {"SMAA", "Jorge Jimenez, Jose I. Echevarria, Tiago Sousa, Diego Gutierrez", "MIT", "https://github.com/iryoku/smaa"},
+    {"FXAA", "Timothy Lottes, NVIDIA", "Public domain", "https://developer.download.nvidia.com/assets/gamedev/files/sdk/11/FXAA_WhitePaper.pdf"},
+    {"Monocypher", "Loup Vaillant, Michael Savage, Fabio Scotoni", "BSD-2-Clause or CC0", "https://monocypher.org"},
+#if defined(SLOPENGINE_HAS_STEAM_AUDIO)
+    {"Steam Audio", "Valve Corporation", "Apache 2.0", "https://valvesoftware.github.io/steam-audio/"},
+#endif
+};
+
+constexpr CreditEntry kAssetCredits[] = {
+    {"Fira Sans", "Mozilla Foundation, Carrois Corporate", "SIL OFL 1.1", "https://github.com/mozilla/Fira"},
+    {"JetBrains Mono", "JetBrains", "SIL OFL 1.1", "https://www.jetbrains.com/lp/mono/"},
+    {"Silk icons", "Mark James", "CC BY 2.5", "http://www.famfamfam.com/lab/icons/silk/"},
+};
+
+void drawCreditTable(const char* id, std::span<const CreditEntry> entries) {
+    constexpr ImGuiTableFlags flags =
+        ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp;
+    if (!ImGui::BeginTable(id, 3, flags)) {
+        return;
+    }
+    ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_None, 1.0f);
+    ImGui::TableSetupColumn("Copyright", ImGuiTableColumnFlags_None, 1.8f);
+    ImGui::TableSetupColumn("License", ImGuiTableColumnFlags_None, 1.2f);
+    ImGui::TableHeadersRow();
+    for (const CreditEntry& entry : entries) {
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        ImGui::PushID(entry.name);
+        ImGui::TextLinkOpenURL(entry.name, entry.url);
+        ImGui::SetItemTooltip("%s", entry.url);
+        ImGui::PopID();
+        ImGui::TableNextColumn();
+        ImGui::TextWrapped("%s", entry.copyright);
+        ImGui::TableNextColumn();
+        ImGui::TextWrapped("%s", entry.license);
+    }
+    ImGui::EndTable();
+}
+
+void drawCredits(
+    AssetStore& assets,
+    SettingsUiState& settingsUi,
+    const SlopUiTheme& theme,
+    const SlopUiFonts& fonts) {
+    if (!settingsUi.creditsOpen) {
+        return;
+    }
+    ImGui::SetNextWindowSize({640.0f, 520.0f}, ImGuiCond_FirstUseEver);
+    if (!beginThemedWindow(theme, fonts, &assets, "Credits", &settingsUi.creditsOpen, 0)) {
+        ImGui::End();
+        return;
+    }
+    ImGui::TextUnformatted("slopengine");
+    ImGui::TextDisabled("MIT License, Copyright (c) 2026 Slopnode");
+    ImGui::Separator();
+    ImGui::TextUnformatted("Libraries");
+    drawCreditTable("LibraryCredits", kLibraryCredits);
+    ImGui::Spacing();
+    ImGui::TextUnformatted("Fonts and icons");
+    drawCreditTable("AssetCredits", kAssetCredits);
+    ImGui::End();
+}
+
+const char* packageRoleName(PackageRole role) {
+    switch (role) {
+    case PackageRole::Engine:
+        return "engine";
+    case PackageRole::Base:
+        return "base";
+    case PackageRole::Mod:
+        return "mod";
+    }
+    return "";
+}
+
+const char* glVersionName(int version) {
+    switch (version) {
+    case RL_OPENGL_SOFTWARE:
+        return "software";
+    case RL_OPENGL_11:
+        return "OpenGL 1.1";
+    case RL_OPENGL_21:
+        return "OpenGL 2.1";
+    case RL_OPENGL_33:
+        return "OpenGL 3.3";
+    case RL_OPENGL_43:
+        return "OpenGL 4.3";
+    case RL_OPENGL_ES_20:
+        return "OpenGL ES 2.0";
+    case RL_OPENGL_ES_30:
+        return "OpenGL ES 3.0";
+    default:
+        return "unknown";
+    }
+}
+
+std::string compilerName() {
+#if defined(__clang__)
+    return "Clang " __clang_version__;
+#elif defined(__GNUC__)
+    return "GCC " __VERSION__;
+#elif defined(_MSC_VER)
+    return "MSVC " + std::to_string(_MSC_VER);
+#else
+    return "unknown";
+#endif
+}
+
+const char* platformName() {
+#if defined(_WIN32)
+    return "Windows";
+#elif defined(__APPLE__)
+    return "macOS";
+#elif defined(__linux__)
+    return "Linux";
+#else
+    return "unknown";
+#endif
+}
+
+void infoRow(const char* label, const std::string& value) {
+    ImGui::TableNextRow();
+    ImGui::TableNextColumn();
+    ImGui::TextDisabled("%s", label);
+    ImGui::TableNextColumn();
+    ImGui::TextWrapped("%s", value.c_str());
+}
+
+bool beginInfoTable(const char* id) {
+    if (!ImGui::BeginTable(id, 2, ImGuiTableFlags_SizingStretchProp)) {
+        return false;
+    }
+    ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_None, 1.0f);
+    ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_None, 3.0f);
+    return true;
+}
+
+void drawAbout(
+    AssetStore& assets,
+    SettingsUiState& settingsUi,
+    const SlopUiTheme& theme,
+    const SlopUiFonts& fonts) {
+    if (!settingsUi.aboutOpen) {
+        return;
+    }
+    ImGui::SetNextWindowSize({600.0f, 520.0f}, ImGuiCond_FirstUseEver);
+    if (!beginThemedWindow(theme, fonts, &assets, "About", &settingsUi.aboutOpen, 0)) {
+        ImGui::End();
+        return;
+    }
+    ImGui::TextUnformatted("Build");
+    if (beginInfoTable("AboutBuild")) {
+        infoRow("Engine", std::string("slopengine ") + kSlopengineVersion);
+        infoRow("Build type", *kSlopengineBuildType != '\0' ? kSlopengineBuildType : "unspecified");
+        infoRow("Compiled", std::string(__DATE__) + " " + __TIME__);
+        infoRow("Compiler", compilerName());
+        infoRow("Platform", platformName());
+        infoRow("Renderer", glVersionName(rlGetVersion()));
+        infoRow("raylib", RAYLIB_VERSION);
+        infoRow("Dear ImGui", ImGui::GetVersion());
+#if defined(SLOPENGINE_HAS_STEAM_AUDIO)
+        infoRow("Steam Audio", "enabled");
+#else
+        infoRow("Steam Audio", "not built");
+#endif
+        ImGui::EndTable();
+    }
+    ImGui::Spacing();
+    ImGui::TextUnformatted("Loaded packages");
+    constexpr ImGuiTableFlags flags =
+        ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp;
+    if (ImGui::BeginTable("AboutPackages", 4, flags)) {
+        ImGui::TableSetupColumn("Package", ImGuiTableColumnFlags_None, 1.4f);
+        ImGui::TableSetupColumn("Version", ImGuiTableColumnFlags_None, 0.6f);
+        ImGui::TableSetupColumn("Role", ImGuiTableColumnFlags_None, 0.5f);
+        ImGui::TableSetupColumn("Path", ImGuiTableColumnFlags_None, 2.5f);
+        ImGui::TableHeadersRow();
+        for (const Package& package : assets.packages()) {
+            const PackageMeta& meta = package.meta();
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(meta.name.empty() ? meta.id.c_str() : meta.name.c_str());
+            if (!meta.name.empty()) {
+                ImGui::SetItemTooltip("%s", meta.id.c_str());
+            }
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(meta.version.c_str());
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(packageRoleName(package.role()));
+            ImGui::TableNextColumn();
+            ImGui::TextWrapped("%s", package.root().string().c_str());
+        }
+        ImGui::EndTable();
+    }
+    ImGui::End();
+}
+
+void drawErrorReport(
+    flecs::world world,
+    AssetStore& assets,
+    const SlopUiTheme& theme,
+    const SlopUiFonts& fonts) {
+    if (!world.has<ErrorReport>()) {
+        return;
+    }
+    ErrorReport& report = world.get_mut<ErrorReport>();
+    if (!report.open) {
+        return;
+    }
+    const ImVec2 display = ImGui::GetIO().DisplaySize;
+    ImGui::SetNextWindowPos({display.x * 0.5f, display.y * 0.5f}, ImGuiCond_Appearing, {0.5f, 0.5f});
+    ImGui::SetNextWindowSize({560.0f, 0.0f}, ImGuiCond_Appearing);
+    const std::string windowName = report.title + "###ErrorReport";
+    if (!beginThemedWindow(theme, fonts, &assets, windowName.c_str(), &report.open, ImGuiWindowFlags_NoCollapse)) {
+        ImGui::End();
+        return;
+    }
+    if (ImGui::IsWindowAppearing()) {
+        ImGui::SetWindowFocus();
+    }
+    drawIconImGui(assets, kDefaultIconSet, "error", 32.0f);
+    ImGui::SameLine();
+    ImGui::BeginGroup();
+    ImGui::PushStyleColor(ImGuiCol_Text, theme.danger.vec());
+    ImGui::TextWrapped("%s", report.message.c_str());
+    ImGui::PopStyleColor();
+    if (!report.context.empty()) {
+        ImGui::TextColored(theme.textDim.vec(), "%s", report.context.c_str());
+    }
+    ImGui::EndGroup();
+    ImGui::Spacing();
+
+    if (ImGui::CollapsingHeader("Details", ImGuiTreeNodeFlags_DefaultOpen)) {
+        const float height = std::min(240.0f, ImGui::GetTextLineHeightWithSpacing() * 12.0f);
+        if (ImGui::BeginChild("ErrorReportDetails", {0.0f, height}, ImGuiChildFlags_Borders)) {
+            if (report.details.empty()) {
+                ImGui::TextColored(theme.textDim.vec(), "No messages were logged.");
+            }
+            for (const LogEntry& entry : report.details) {
+                const ImVec4 color = entry.level >= LogLevel::Error ? theme.danger.vec() : theme.text.vec();
+                ImGui::PushStyleColor(ImGuiCol_Text, color);
+                ImGui::TextWrapped("[%s] %s", Log::levelLabel(entry.level), entry.text.c_str());
+                ImGui::PopStyleColor();
+            }
+        }
+        ImGui::EndChild();
+    }
+
+    ImGui::Spacing();
+    if (themedButton(theme, fonts, &assets, "Copy", {}, false, kDefaultIconSet, "page_copy")) {
+        std::string text = report.message + "\n";
+        if (!report.context.empty()) {
+            text += report.context + "\n";
+        }
+        for (const LogEntry& entry : report.details) {
+            text += std::string("[") + Log::levelLabel(entry.level) + "] " + entry.text + "\n";
+        }
+        ImGui::SetClipboardText(text.c_str());
+    }
+    ImGui::SameLine();
+    if (themedButton(theme, fonts, &assets, "OK", {}, true, kDefaultIconSet, "accept")) {
+        report.open = false;
+    }
+    ImGui::End();
+}
+
 void drawPauseMenu(
     flecs::world world,
     AssetStore& assets,
@@ -200,6 +854,14 @@ void drawPauseMenu(
         }
         if (ImGui::IsWindowAppearing()) {
             ImGui::SetItemDefaultFocus();
+        }
+        if (currentNetStatus(world).kind != NetStatusKind::Offline &&
+            themedButton(
+                theme, fonts, &assets, "Leave Game", {-1.0f, theme.buttonHeight}, false, kDefaultIconSet,
+                "disconnect")) {
+            contexts.pop(InputContext::PauseMenu);
+            requestNetControl(NetControlRequest{});
+            playUiSound(world, UiSoundKind::Back);
         }
         callDrawPauseMenu(world);
     }
@@ -271,6 +933,38 @@ void drawGraphicsSettings(
     }
 
     ImGui::Checkbox("VSync", &draft.vsync);
+
+    const std::vector<int> msaaOptions = msaaSampleOptions();
+    const std::string msaaCurrent =
+        draft.msaaSamples >= 2 ? std::to_string(draft.msaaSamples) + "x" : std::string("Off");
+    if (ImGui::BeginCombo("MSAA", msaaCurrent.c_str())) {
+        for (const int samples : msaaOptions) {
+            const std::string label = samples >= 2 ? std::to_string(samples) + "x" : std::string("Off");
+            const bool selected = samples == draft.msaaSamples;
+            if (ImGui::Selectable(label.c_str(), selected)) {
+                draft.msaaSamples = samples;
+            }
+            if (selected) {
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+        ImGui::EndCombo();
+    }
+
+    constexpr AntiAliasMode kAntiAliasModes[] = {AntiAliasMode::Off, AntiAliasMode::Fxaa, AntiAliasMode::Smaa};
+    if (ImGui::BeginCombo("Anti-Aliasing", antiAliasLabel(draft.antiAliasing))) {
+        for (const AntiAliasMode mode : kAntiAliasModes) {
+            const bool selected = mode == draft.antiAliasing;
+            if (ImGui::Selectable(antiAliasLabel(mode), selected)) {
+                draft.antiAliasing = mode;
+            }
+            if (selected) {
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+        ImGui::EndCombo();
+    }
+
     ImGui::Checkbox("Dynamic Lights", &draft.dynamicLights);
     if (!draft.dynamicLights) {
         ImGui::BeginDisabled();
@@ -427,7 +1121,7 @@ void drawMainMenuBar(
     QuitRequest& quit,
     SettingsUiState& settingsUi,
     DebugUiState& debugUi,
-    const UserSettings& settings,
+    UserSettings& settings,
     const EngineSessionInfo& sessionInfo,
     const SlopUiTheme& theme,
     const SlopUiFonts& fonts,
@@ -472,6 +1166,60 @@ void drawMainMenuBar(
         }
         if (item("keyboard", "Controls")) {
             openControlsSettings(settingsUi, settings);
+        }
+        if (world.has<SlopUiThemeCatalog>() && menu("palette", "Theme", false)) {
+            const std::vector<SlopUiThemeEntry>& themes = world.get<SlopUiThemeCatalog>().themes;
+            if (themes.empty()) {
+                ImGui::MenuItem("(no themes)", nullptr, false, false);
+            }
+            for (const SlopUiThemeEntry& entry : themes) {
+                const bool selected = entry.id == settings.ui.theme;
+                if (itemState("palette", entry.name.c_str(), selected, true) && !selected) {
+                    settings.ui.theme = entry.id;
+                    settings.save();
+                    themeReload.pending = true;
+                }
+            }
+            ImGui::EndMenu();
+        }
+        ImGui::EndMenu();
+    }
+
+    if (!netSchema().sessionKinds().empty() && menu("group", "Multiplayer", true)) {
+        const NetStatus status = currentNetStatus(world);
+        if (item("server", "Host Game...")) {
+            openHostGame(settingsUi);
+        }
+        if (item("connect", "Join Game...")) {
+            openJoinGame(settingsUi, settings);
+        }
+        if (itemState("disconnect", "Leave Game", false, status.kind != NetStatusKind::Offline)) {
+            requestNetControl(NetControlRequest{});
+        }
+        if (status.kind == NetStatusKind::Hosting && status.botsSupported) {
+            ImGui::Separator();
+            NetControlRequest bots;
+            bots.kind = NetControlKind::Bots;
+            if (itemState("user_add", "Add Bot", false, status.players < status.maxPlayers)) {
+                bots.bots = status.bots + 1;
+                requestNetControl(bots);
+            }
+            if (itemState("user_delete", "Remove Bot", false, status.bots > 0)) {
+                bots.bots = status.bots - 1;
+                requestNetControl(bots);
+            }
+            if (itemState("user_delete", "Remove All Bots", false, status.bots > 0)) {
+                bots.bots = 0;
+                requestNetControl(bots);
+            }
+        }
+        ImGui::Separator();
+        if (item("user_edit", "Profile...")) {
+            openProfile(settingsUi, settings);
+        }
+        if (status.kind != NetStatusKind::Offline) {
+            ImGui::Separator();
+            ImGui::TextDisabled("%s", netStatusLine(status).c_str());
         }
         ImGui::EndMenu();
     }
@@ -545,6 +1293,7 @@ void drawMainMenuBar(
             ImGui::EndMenu();
         }
         item("arrow_branch", "Nav Paths", &debugUi.showNavPaths);
+        item("user", "Skeletons", &debugUi.showSkeletons);
         if (menu("shape_square", "Nav Polys (baked)", false)) {
             if (!world.has<MapNavProfiles>() || world.get<MapNavProfiles>().profiles.empty()) {
                 ImGui::MenuItem("(none baked)", nullptr, false, false);
@@ -563,6 +1312,7 @@ void drawMainMenuBar(
         item("box", "Actor Colliders", &debugUi.showActorColliders);
         item("chart_curve", "Performance", &debugUi.showPerformance);
         item("lightbulb", "Unlit (disable lightmaps)", &debugUi.unlit);
+        item("world", "Cull map meshes by PVS", &debugUi.mapMeshCull);
         item("user_go", "Noclip", &debugUi.noclip);
         item("camera_go", "Free Camera", &debugUi.freeCamera);
         item("picture_empty", "Hide HUD", &debugUi.hideHud);
@@ -577,7 +1327,12 @@ void drawMainMenuBar(
     }
 
     if (menu("information", "Help", true)) {
-        itemState("information", "About", false, false);
+        if (itemState("information", "About", false, true)) {
+            settingsUi.aboutOpen = true;
+        }
+        if (itemState("award_star_gold_1", "Credits", false, true)) {
+            settingsUi.creditsOpen = true;
+        }
         ImGui::EndMenu();
     }
 
@@ -1014,7 +1769,12 @@ void drawPerformanceWindow(flecs::world world, DebugUiState& debugUi) {
     static float displayPhysicsMs = 0.0f;
     static float displayRenderMs = 0.0f;
     static float displayUiMs = 0.0f;
+    static float displaySwapMs = 0.0f;
     static float displayRssMb = 0.0f;
+    static float displayGpuFrameMs = 0.0f;
+    static float displayGpuPassMs[kGpuPassCount]{};
+    static float displayCpuPassMs[kGpuPassCount]{};
+    static FrameCounters displayCounters{};
     const double now = GetTime();
     if (displayLastUpdate == 0.0 || (now - displayLastUpdate) >= 0.2) {
         displayLastUpdate = now;
@@ -1023,32 +1783,101 @@ void drawPerformanceWindow(flecs::world world, DebugUiState& debugUi) {
         displayPhysicsMs = perf.physicsMs;
         displayRenderMs = perf.renderMs;
         displayUiMs = perf.uiMs;
+        displaySwapMs = perf.swapMs;
         displayRssMb = processRssMb();
+        displayGpuFrameMs = perf.gpuFrameMs;
+        for (int i = 0; i < kGpuPassCount; ++i) {
+            displayGpuPassMs[i] = perf.gpuPassMs[i];
+            displayCpuPassMs[i] = perf.cpuPassMs[i];
+        }
+        displayCounters = perf.counters;
     }
 
-    constexpr ImVec4 kFrameColor{0.45f, 0.85f, 1.0f, 1.0f};
-    constexpr ImVec4 kPhysicsColor{1.0f, 0.70f, 0.30f, 1.0f};
-    constexpr ImVec4 kRenderColor{0.45f, 0.90f, 0.50f, 1.0f};
-    constexpr ImVec4 kUiColor{0.90f, 0.50f, 0.95f, 1.0f};
+    const ImVec4 frameColor = debugUiColor({0.45f, 0.85f, 1.0f, 1.0f}, {0.0f, 0.36f, 0.62f, 1.0f});
+    const ImVec4 physicsColor = debugUiColor({1.0f, 0.70f, 0.30f, 1.0f}, {0.66f, 0.32f, 0.0f, 1.0f});
+    const ImVec4 renderColor = debugUiColor({0.45f, 0.90f, 0.50f, 1.0f}, {0.05f, 0.45f, 0.12f, 1.0f});
+    const ImVec4 uiColor = debugUiColor({0.90f, 0.50f, 0.95f, 1.0f}, {0.52f, 0.12f, 0.60f, 1.0f});
+    const ImVec4 gpuColor = debugUiColor({0.95f, 0.85f, 0.35f, 1.0f}, {0.60f, 0.48f, 0.0f, 1.0f});
 
     if (ImGui::CollapsingHeader("Timings", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::TextColored(
-            kFrameColor,
+            frameColor,
             "Frame  %.2f ms  (%.0f FPS)",
             static_cast<double>(displayFrameMs),
             static_cast<double>(displayFps));
-        plotMsHistory("##frameMs", perf, perf.frameHistory, 16.7f, kFrameColor);
+        plotMsHistory("##frameMs", perf, perf.frameHistory, 16.7f, frameColor);
 
         ImGui::TextColored(
-            kPhysicsColor, "Physics  %.2f ms", static_cast<double>(displayPhysicsMs));
-        plotMsHistory("##physicsMs", perf, perf.physicsHistory, 4.0f, kPhysicsColor);
+            physicsColor, "Physics  %.2f ms", static_cast<double>(displayPhysicsMs));
+        plotMsHistory("##physicsMs", perf, perf.physicsHistory, 4.0f, physicsColor);
 
         ImGui::TextColored(
-            kRenderColor, "Render  %.2f ms", static_cast<double>(displayRenderMs));
-        plotMsHistory("##renderMs", perf, perf.renderHistory, 4.0f, kRenderColor);
+            renderColor, "Render  %.2f ms", static_cast<double>(displayRenderMs));
+        plotMsHistory("##renderMs", perf, perf.renderHistory, 4.0f, renderColor);
 
-        ImGui::TextColored(kUiColor, "UI  %.2f ms", static_cast<double>(displayUiMs));
-        plotMsHistory("##uiMs", perf, perf.uiHistory, 2.0f, kUiColor);
+        ImGui::TextColored(uiColor, "UI  %.2f ms", static_cast<double>(displayUiMs));
+        plotMsHistory("##uiMs", perf, perf.uiHistory, 2.0f, uiColor);
+        ImGui::Text("Swap  %.2f ms", static_cast<double>(displaySwapMs));
+        ImGui::Text(
+            "Other  %.2f ms",
+            static_cast<double>(
+                displayFrameMs - displayPhysicsMs - displayRenderMs - displayUiMs - displaySwapMs));
+    }
+
+    if (ImGui::CollapsingHeader("Systems", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (!world.has<SystemPerfState>() || !world.get<SystemPerfState>().enabled) {
+            ImGui::TextUnformatted("(system timing off, run with --debug)");
+        } else {
+            for (const SystemTime& time : world.get<SystemPerfState>().top) {
+                ImGui::Text("%-28s %6.2f ms", time.name.c_str(), static_cast<double>(time.msPerFrame));
+            }
+        }
+    }
+
+    if (ImGui::CollapsingHeader("GPU", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (!perf.gpuTimingAvailable) {
+            ImGui::TextUnformatted("(no GPU timer queries)");
+        } else {
+            ImGui::TextColored(
+                gpuColor, "GPU frame  %.2f ms", static_cast<double>(displayGpuFrameMs));
+            plotMsHistory("##gpuMs", perf, perf.gpuHistory, 16.7f, gpuColor);
+            ImGui::TextUnformatted("                gpu      cpu");
+            for (int i = 0; i < kGpuPassCount; ++i) {
+                ImGui::Text(
+                    "%-12s %6.2f   %6.2f ms",
+                    gpuPassName(static_cast<GpuPass>(i)),
+                    static_cast<double>(displayGpuPassMs[i]),
+                    static_cast<double>(displayCpuPassMs[i]));
+            }
+        }
+    }
+
+    if (ImGui::CollapsingHeader("Counts", ImGuiTreeNodeFlags_DefaultOpen)) {
+        const FrameCounters& c = displayCounters;
+        ImGui::Text(
+            "Mesh draws  map %d  models %d  transparent %d",
+            c.mapMeshDraws,
+            c.modelMeshDraws,
+            c.transparentMeshDraws);
+        ImGui::Text("Sprites %d  Particles %d", c.spritesDrawn, c.particlesDrawn);
+        ImGui::Text(
+            "Shadow faces %d  draws %d  culled %d",
+            c.shadowFaces,
+            c.shadowMeshDraws,
+            c.shadowCastersCulled);
+        ImGui::Text("Map culled  frustum %d  pvs %d", c.mapFrustumCulled, c.mapPvsCulled);
+        ImGui::Text(
+            "Models culled  frustum %d  pvs %d", c.modelsFrustumCulled, c.modelsPvsCulled);
+        ImGui::Text(
+            "Sprites culled  frustum %d  pvs %d", c.spritesFrustumCulled, c.spritesPvsCulled);
+        ImGui::Text(
+            "Transparent culled  frustum %d  pvs %d",
+            c.transparentFrustumCulled,
+            c.transparentPvsCulled);
+        ImGui::Text("Lights  active %d  culled %d", c.lightsActive, c.lightsCulled);
+        ImGui::Text("PVS tests %d", c.pvsTests);
+        ImGui::Text("Rays  bvh %d  physics %d", c.bvhRays, c.physicsRays);
+        ImGui::Text("Probe samples %d", c.probeSamples);
     }
 
     if (ImGui::CollapsingHeader("Memory", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -1366,7 +2195,9 @@ void registerSystems(flecs::world& world) {
             if (!w.has<ScriptContext>() || w.get<ScriptContext>().scheme == nullptr) {
                 return;
             }
-            installSlopUiTheme(w, *w.get_mut<AssetServices>().store, w.get<ScriptContext>().scheme);
+            const std::string themeId =
+                w.has<UserSettings>() ? w.get<UserSettings>().ui.theme : std::string{kDefaultSlopUiThemeId};
+            installSlopUiTheme(w, *w.get_mut<AssetServices>().store, w.get<ScriptContext>().scheme, themeId);
             TraceLog(LOG_INFO, "THEME: reloaded");
         });
 
@@ -1539,6 +2370,9 @@ void drawUi(flecs::world world) {
         drawScriptingErrorBanner(*assets, theme, fonts);
     }
 
+    const NetStatus netStatus = currentNetStatus(world);
+    settleNetWindows(settingsUi, netStatus);
+
     if (contexts.contains(InputContext::MainMenu) && assets != nullptr) {
         DebugUiState& debugUi = world.get_mut<DebugUiState>();
         const EngineSessionInfo& sessionInfo = world.get<EngineSessionInfo>();
@@ -1548,11 +2382,20 @@ void drawUi(flecs::world world) {
         const bool controlsWasOpen = settingsUi.controlsOpen;
         drawGraphicsSettings(world, *assets, settingsUi, settings, theme, fonts);
         drawControlsSettings(world, *assets, settingsUi, settings, theme, fonts);
+        drawHostGame(world, *assets, settingsUi, theme, fonts);
+        drawJoinGame(world, *assets, settingsUi, settings, netStatus, theme, fonts);
+        drawProfile(world, *assets, settingsUi, settings, theme, fonts);
+        drawAbout(*assets, settingsUi, theme, fonts);
+        drawCredits(*assets, settingsUi, theme, fonts);
         if ((graphicsWasOpen && !settingsUi.graphicsOpen) || (controlsWasOpen && !settingsUi.controlsOpen)) {
             playUiSound(world, UiSoundKind::Back);
         }
         drawEntityList(world, debugUi);
         drawEntityDetail(debugUi);
+    }
+
+    if (assets != nullptr) {
+        drawErrorReport(world, *assets, theme, fonts);
     }
 
     if (world.has<DebugUiState>()) {

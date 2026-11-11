@@ -1,0 +1,4 @@
+(docs
+  (title "Slopengine Engine")
+  (nav "index")
+  (engine-docs "https://pages.slopnode.net/engine-docs/"))

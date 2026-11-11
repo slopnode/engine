@@ -41,20 +41,23 @@ void drawSkeletonOverlay(const Model& model, const AnimationPlayer* animationPla
     const Color boneColor = {255, 220, 0, 255};
     const Color jointColor = {255, 64, 64, 255};
 
+    rlDrawRenderBatchActive();
     rlDisableDepthTest();
     rlDisableDepthMask();
 
-    for (int boneIndex = 0; boneIndex < model.skeleton.boneCount; ++boneIndex) {
+    const int boneCount = static_cast<int>(model.skeleton.boneCount);
+    for (int boneIndex = 0; boneIndex < boneCount; ++boneIndex) {
         const Vector3 jointPosition = jointPoses[boneIndex].translation;
         DrawSphereWires(jointPosition, jointRadius, 6, 8, jointColor);
 
         const int parentIndex = model.skeleton.bones[boneIndex].parent;
-        if (parentIndex >= 0 && parentIndex < model.skeleton.boneCount) {
+        if (parentIndex >= 0 && parentIndex < boneCount) {
             const Vector3 parentPosition = jointPoses[parentIndex].translation;
             DrawLine3D(parentPosition, jointPosition, boneColor);
         }
     }
 
+    rlDrawRenderBatchActive();
     rlEnableDepthMask();
     rlEnableDepthTest();
 }
@@ -509,7 +512,7 @@ constexpr float kLightProbeDebugMinDistanceSq = kLightProbeDebugMinDistance * kL
 
 void drawProbeGridDots(const ProbeGrid& grid, Vector3 cameraPosition, bool fine) {
     const float radius = fine ? 0.035f : 0.06f;
-    for (const auto& [cell, sh] : grid.probesByCell) {
+    for (const auto& [cell, cube] : grid.probesByCell) {
         const Vector3 worldPos{
             static_cast<float>(cell.x) * grid.cellSize,
             static_cast<float>(cell.y) * grid.cellSize,
@@ -522,13 +525,9 @@ void drawProbeGridDots(const ProbeGrid& grid, Vector3 cameraPosition, bool fine)
         if (distSq > kLightProbeDebugMaxDistanceSq || distSq < kLightProbeDebugMinDistanceSq) {
             continue;
         }
-        // Reconstruct toward straight up, matching the {0,1,0} "eye" query used for actual
-        // sprite lighting (see sampleLightProbe callers) — showing only coeff[0] (the DC/average
-        // term) hides the sun-facing lobe entirely and makes sunlit probes look dull.
-        const float r = std::max(0.0f, sh.coeff[0].x + sh.coeff[2].x);
-        const float g = std::max(0.0f, sh.coeff[0].y + sh.coeff[2].y);
-        const float b = std::max(0.0f, sh.coeff[0].z + sh.coeff[2].z);
-        const Color color = linearIrradianceToDisplayColor(r, g, b);
+        // Shows the upward face, matching the {0,1,0} "eye" query used for sprite lighting.
+        const Vector3 up = evaluateProbeCube(cube, {0.0f, 1.0f, 0.0f});
+        const Color color = linearIrradianceToDisplayColor(up.x, up.y, up.z);
         DrawSphere(worldPos, radius, color);
     }
 }

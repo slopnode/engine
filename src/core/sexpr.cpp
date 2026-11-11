@@ -52,6 +52,19 @@ struct Parser {
                 }
                 continue;
             }
+            if (c == '#' && index + 1 < source.size() && source[index + 1] == '|') {
+                get();
+                get();
+                while (!atEnd()) {
+                    if (peek() == '|' && index + 1 < source.size() && source[index + 1] == '#') {
+                        get();
+                        get();
+                        break;
+                    }
+                    get();
+                }
+                continue;
+            }
             break;
         }
     }
@@ -88,10 +101,6 @@ struct Parser {
                 }
                 continue;
             }
-            if (c == '\n') {
-                setError("unterminated string");
-                return false;
-            }
             value.push_back(c);
         }
         setError("unterminated string");
@@ -102,6 +111,11 @@ struct Parser {
         out.line = line;
         out.column = column;
         std::string token;
+        if (peek() == '#' && index + 1 < source.size() && source[index + 1] == '\\' && index + 2 < source.size()) {
+            token.push_back(get());
+            token.push_back(get());
+            token.push_back(get());
+        }
         while (!atEnd()) {
             const char c = peek();
             if (c == '(' || c == ')' || c == '"' || c == ';' ||

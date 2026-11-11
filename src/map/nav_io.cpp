@@ -1,5 +1,7 @@
 #include "map/nav_io.hpp"
 
+#include "map/nav_navmesh_build.hpp"
+
 #include <raylib.h>
 
 #include <cstring>
@@ -231,6 +233,7 @@ std::optional<MapNavigation> readNavBytes(std::span<const std::byte> data) {
             }
         }
     }
+    buildNavPolyIndex(nav);
 
     nav.adjacency.resize(leafCount);
     std::vector<std::vector<std::uint32_t>> doorBrushIndices(leafCount);

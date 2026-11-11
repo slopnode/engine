@@ -1,11 +1,14 @@
 #pragma once
 
 #include "assets/asset_store.hpp"
+#include "render/anti_alias.hpp"
+#include "render/msaa_target.hpp"
 
 #include <cstdint>
 #include <flecs.h>
 #include <raylib.h>
 
+#include <memory>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -72,6 +75,10 @@ struct PostProcessState {
 
     PostPassHandle nextHandle = 1;
 
+    AntiAliasMode antiAliasMode = AntiAliasMode::Off;
+    std::unique_ptr<AntiAliasState> antiAlias;
+    std::unique_ptr<MsaaTarget> msaa;
+
     PostProcessState() = default;
     PostProcessState(const PostProcessState&) = delete;
     PostProcessState& operator=(const PostProcessState&) = delete;
@@ -86,6 +93,12 @@ struct PostProcessState {
 PostProcessState& ensurePostProcessState(flecs::world& world);
 
 bool ensurePostProcessScene(PostProcessState& state, int width, int height);
+
+void setPostProcessAntiAlias(PostProcessState& state, AssetStore& assets, AntiAliasMode mode);
+
+bool setPostProcessMsaa(PostProcessState& state, int samples);
+RenderTexture2D& postProcessSceneTarget(PostProcessState& state);
+void resolvePostProcessMsaa(PostProcessState& state);
 bool ensurePostProcessHud(PostProcessState& state, int width, int height);
 
 // True when the Hud or Both stacks have at least one active pass, meaning the

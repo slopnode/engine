@@ -1,6 +1,8 @@
 #pragma once
 
+#include "game/ui_settings.hpp"
 #include "input/actions.hpp"
+#include "render/anti_alias.hpp"
 
 #include <filesystem>
 #include <string>
@@ -21,6 +23,8 @@ struct GraphicsSettings {
     int height = 720;
     WindowMode mode = WindowMode::Windowed;
     bool vsync = true;
+    int msaaSamples = 0;
+    AntiAliasMode antiAliasing = AntiAliasMode::Off;
     bool dynamicLights = true;
     bool dynamicLightShadows = true;
     int maxDynamicLights = 32;
@@ -41,6 +45,7 @@ struct ControlsSettings {
 struct UserSettings {
     GraphicsSettings graphics{};
     ControlsSettings controls{};
+    UiSettings ui{};
     /** Where save() writes; set by the caller from core::profileSettingsPath(). */
     std::filesystem::path settingsFilePath{};
 

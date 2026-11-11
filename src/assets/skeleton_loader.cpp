@@ -1,5 +1,10 @@
 #include "assets/skeleton_loader.hpp"
 
+#include "assets/anim_loader.hpp"
+#include "render/gpu_ready.hpp"
+#include "render/model_hitboxes.hpp"
+
+#include <algorithm>
 #include <charconv>
 #include <cstdint>
 #include <cstring>
@@ -171,8 +176,62 @@ Matrix interpolatePoseMatrices(const Matrix& from, const Matrix& to, float blend
     return matrixFromPoseTransform(blended);
 }
 
-Matrix skinMatrixForGpu(const Matrix& bindMatrix, const Matrix& currentMatrix) {
-    return MatrixMultiply(MatrixInvert(bindMatrix), currentMatrix);
+bool parentsPrecedeChildren(const BoneInfo* bones, int boneCount) {
+    for (int boneIndex = 0; boneIndex < boneCount; ++boneIndex) {
+        if (bones[boneIndex].parent >= boneIndex) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/** Blends two global-space pose frames in parent-local space and rebuilds the chain, so a
+ *  bone keeps its length while its parent swings instead of cutting the chord between the
+ *  two keyframes. */
+void interpolatePoseFrames(
+    const BoneInfo* bones,
+    int boneCount,
+    const Matrix* from,
+    const Matrix* to,
+    float blend,
+    std::vector<Matrix>& out,
+    const Transform* fromLocalPose = nullptr,
+    const Transform* toLocalPose = nullptr) {
+    out.resize(static_cast<std::size_t>(boneCount));
+    if (blend <= 0.0f || blend >= 1.0f || !parentsPrecedeChildren(bones, boneCount)) {
+        for (int boneIndex = 0; boneIndex < boneCount; ++boneIndex) {
+            out[static_cast<std::size_t>(boneIndex)] =
+                interpolatePoseMatrices(from[boneIndex], to[boneIndex], blend);
+        }
+        return;
+    }
+    if (fromLocalPose != nullptr && toLocalPose != nullptr) {
+        for (int boneIndex = 0; boneIndex < boneCount; ++boneIndex) {
+            const Transform& a = fromLocalPose[boneIndex];
+            const Transform& b = toLocalPose[boneIndex];
+            Transform blended{};
+            blended.translation = Vector3Lerp(a.translation, b.translation, blend);
+            blended.rotation = QuaternionSlerp(a.rotation, b.rotation, blend);
+            blended.scale = Vector3Lerp(a.scale, b.scale, blend);
+            const Matrix local = matrixFromPoseTransform(blended);
+            const int parent = bones[boneIndex].parent;
+            out[static_cast<std::size_t>(boneIndex)] =
+                parent >= 0 ? MatrixMultiply(local, out[static_cast<std::size_t>(parent)]) : local;
+        }
+        return;
+    }
+    for (int boneIndex = 0; boneIndex < boneCount; ++boneIndex) {
+        const int parent = bones[boneIndex].parent;
+        Matrix fromLocal = from[boneIndex];
+        Matrix toLocal = to[boneIndex];
+        if (parent >= 0) {
+            fromLocal = MatrixMultiply(fromLocal, MatrixInvert(from[parent]));
+            toLocal = MatrixMultiply(toLocal, MatrixInvert(to[parent]));
+        }
+        const Matrix local = interpolatePoseMatrices(fromLocal, toLocal, blend);
+        out[static_cast<std::size_t>(boneIndex)] =
+            parent >= 0 ? MatrixMultiply(local, out[static_cast<std::size_t>(parent)]) : local;
+    }
 }
 
 const std::vector<Matrix>* resolveBindMatrices(
@@ -205,6 +264,33 @@ bool readScalar(std::span<const std::byte> data, std::size_t& offset, T& value) 
 }
 
 } // namespace
+
+std::vector<std::vector<Transform>> buildLocalPoseKeyframes(
+    const SkeletonAsset& skeleton,
+    const std::vector<std::vector<Matrix>>& keyframes) {
+    const std::size_t boneCount = skeleton.bones.size();
+    for (std::size_t boneIndex = 0; boneIndex < boneCount; ++boneIndex) {
+        if (skeleton.bones[boneIndex].parent >= static_cast<int>(boneIndex)) {
+            return {};
+        }
+    }
+    std::vector<std::vector<Transform>> local(keyframes.size());
+    for (std::size_t frame = 0; frame < keyframes.size(); ++frame) {
+        const std::vector<Matrix>& globals = keyframes[frame];
+        if (globals.size() != boneCount) {
+            return {};
+        }
+        local[frame].resize(boneCount);
+        for (std::size_t boneIndex = 0; boneIndex < boneCount; ++boneIndex) {
+            const int parent = skeleton.bones[boneIndex].parent;
+            const Matrix matrix = parent >= 0
+                ? MatrixMultiply(globals[boneIndex], MatrixInvert(globals[static_cast<std::size_t>(parent)]))
+                : globals[boneIndex];
+            local[frame][boneIndex] = transformFromMatrix(matrix);
+        }
+    }
+    return local;
+}
 
 void globalizePoseFromParentJoints(const BoneInfo* bones, int boneCount, Transform* transforms) {
     for (int index = 0; index < boneCount; ++index) {
@@ -394,6 +480,49 @@ void applyBindPoseFromGlobalMatrices(Model& model, const std::vector<Matrix>& bi
     }
 }
 
+namespace {
+
+bool isSkinnedMesh(const Mesh& mesh) {
+    return mesh.boneWeights != nullptr && mesh.boneIndices != nullptr && mesh.vertices != nullptr;
+}
+
+template <typename T>
+T* cloneArray(const T* source, std::size_t count) {
+    if (source == nullptr || count == 0) {
+        return nullptr;
+    }
+    T* copy = static_cast<T*>(RL_MALLOC(count * sizeof(T)));
+    std::memcpy(copy, source, count * sizeof(T));
+    return copy;
+}
+
+Mesh cloneSkinnedMesh(const Mesh& source) {
+    const std::size_t vertexCount = static_cast<std::size_t>(source.vertexCount);
+    Mesh mesh{};
+    mesh.vertexCount = source.vertexCount;
+    mesh.triangleCount = source.triangleCount;
+    mesh.vertices = cloneArray(source.vertices, vertexCount * 3);
+    mesh.texcoords = cloneArray(source.texcoords, vertexCount * 2);
+    mesh.texcoords2 = cloneArray(source.texcoords2, vertexCount * 2);
+    mesh.normals = cloneArray(source.normals, vertexCount * 3);
+    mesh.tangents = cloneArray(source.tangents, vertexCount * 4);
+    mesh.colors = cloneArray(source.colors, vertexCount * 4);
+    mesh.indices = cloneArray(source.indices, static_cast<std::size_t>(source.triangleCount) * 3);
+    mesh.boneCount = source.boneCount;
+    mesh.boneIndices = cloneArray(source.boneIndices, vertexCount * 4);
+    mesh.boneWeights = cloneArray(source.boneWeights, vertexCount * 4);
+    mesh.animVertices = cloneArray(source.vertices, vertexCount * 3);
+    mesh.animNormals = cloneArray(source.normals, vertexCount * 3);
+    uploadMeshIfGpu(&mesh, true);
+    return mesh;
+}
+
+} // namespace
+
+Mesh cloneSkinnedMeshInstance(const Mesh& source) {
+    return cloneSkinnedMesh(source);
+}
+
 Model cloneGeoModelInstance(const Model& source) {
     Model instance = source;
 
@@ -421,12 +550,32 @@ Model cloneGeoModelInstance(const Model& source) {
         instance.boneMatrices[index] = MatrixIdentity();
     }
 
+    if (source.meshCount > 0 && source.meshes != nullptr) {
+        instance.meshes = static_cast<Mesh*>(RL_CALLOC(source.meshCount, sizeof(Mesh)));
+        instance.meshMaterial = static_cast<int*>(RL_CALLOC(source.meshCount, sizeof(int)));
+        for (int index = 0; index < source.meshCount; ++index) {
+            instance.meshMaterial[index] =
+                source.meshMaterial != nullptr ? source.meshMaterial[index] : index;
+            const Mesh& mesh = source.meshes[index];
+            instance.meshes[index] = isSkinnedMesh(mesh) ? cloneSkinnedMesh(mesh) : mesh;
+        }
+    }
+
     return instance;
 }
 
 void unloadClonedGeoModelInstance(Model& model) {
     if (model.materials != nullptr) {
         RL_FREE(model.materials);
+    }
+    if (model.skeleton.bones != nullptr && model.meshes != nullptr) {
+        for (int index = 0; index < model.meshCount; ++index) {
+            if (isSkinnedMesh(model.meshes[index])) {
+                UnloadMesh(model.meshes[index]);
+            }
+        }
+        RL_FREE(model.meshes);
+        RL_FREE(model.meshMaterial);
     }
     RL_FREE(model.skeleton.bones);
     RL_FREE(model.skeleton.bindPose);
@@ -459,6 +608,11 @@ void allocateModelSkinningBuffers(Model& model) {
 void updateSkinnedMeshVertexBuffers(Model& model) {
     if (model.boneMatrices == nullptr) {
         return;
+    }
+
+    std::vector<Matrix> normalMatrices(model.skeleton.boneCount);
+    for (std::size_t boneIndex = 0; boneIndex < normalMatrices.size(); ++boneIndex) {
+        normalMatrices[boneIndex] = MatrixTranspose(MatrixInvert(model.boneMatrices[boneIndex]));
     }
 
     for (int meshIndex = 0; meshIndex < model.meshCount; ++meshIndex) {
@@ -507,7 +661,7 @@ void updateSkinnedMeshVertexBuffers(Model& model) {
                     };
                     skinnedNormal = Vector3Transform(
                         skinnedNormal,
-                        MatrixTranspose(MatrixInvert(model.boneMatrices[boneIndex])));
+                        normalMatrices[static_cast<std::size_t>(boneIndex)]);
                     mesh.animNormals[vertexOffset] += skinnedNormal.x * boneWeight;
                     mesh.animNormals[vertexOffset + 1] += skinnedNormal.y * boneWeight;
                     mesh.animNormals[vertexOffset + 2] += skinnedNormal.z * boneWeight;
@@ -534,15 +688,171 @@ void updateSkinnedMeshVertexBuffers(Model& model) {
     }
 }
 
-void updateRiggedModelAnimation(
+namespace {
+
+bool hasBoneScaling(const BoneScale* scales, int boneCount) {
+    if (scales == nullptr) {
+        return false;
+    }
+    for (int boneIndex = 0; boneIndex < boneCount; ++boneIndex) {
+        if (scales[boneIndex].size != 1.0f || scales[boneIndex].length != 1.0f) {
+            return true;
+        }
+    }
+    return false;
+}
+
+Matrix parentLocal(const BoneInfo* bones, const std::vector<Matrix>& globals, int boneIndex) {
+    const int parent = bones[boneIndex].parent;
+    const Matrix& global = globals[static_cast<std::size_t>(boneIndex)];
+    return parent >= 0 ? MatrixMultiply(global, MatrixInvert(globals[static_cast<std::size_t>(parent)])) : global;
+}
+
+std::vector<Vector3> boneAxes(const BoneInfo* bones, int boneCount, const std::vector<Matrix>& bind) {
+    std::vector<Vector3> axes(static_cast<std::size_t>(boneCount), Vector3{0.0f, 0.0f, -1.0f});
+    std::vector<float> reach(static_cast<std::size_t>(boneCount), 0.0f);
+    for (int boneIndex = 0; boneIndex < boneCount; ++boneIndex) {
+        const int parent = bones[boneIndex].parent;
+        if (parent < 0) {
+            continue;
+        }
+        const Matrix local = parentLocal(bones, bind, boneIndex);
+        const Vector3 offset{local.m12, local.m13, local.m14};
+        const float length = Vector3Length(offset);
+        if (length > reach[static_cast<std::size_t>(parent)] && length > 1e-5f) {
+            reach[static_cast<std::size_t>(parent)] = length;
+            axes[static_cast<std::size_t>(parent)] = Vector3Scale(offset, 1.0f / length);
+        }
+    }
+    return axes;
+}
+
+Vector3 scaleChildOffset(Vector3 offset, Vector3 axis, const BoneScale& scale) {
+    const float along = Vector3DotProduct(offset, axis);
+    const Vector3 stretched = Vector3Add(offset, Vector3Scale(axis, along * (scale.length - 1.0f)));
+    return Vector3Scale(stretched, scale.size);
+}
+
+void rebuildScaledPose(
+    const BoneInfo* bones,
+    int boneCount,
+    const std::vector<Matrix>& globals,
+    const std::vector<Vector3>& axes,
+    const BoneScale* scales,
+    float lift,
+    std::vector<Matrix>& out) {
+    out.resize(static_cast<std::size_t>(boneCount));
+    for (int boneIndex = 0; boneIndex < boneCount; ++boneIndex) {
+        Matrix local = parentLocal(bones, globals, boneIndex);
+        const int parent = bones[boneIndex].parent;
+        if (parent < 0) {
+            local.m13 += lift;
+            out[static_cast<std::size_t>(boneIndex)] = local;
+            continue;
+        }
+        const Vector3 offset = scaleChildOffset(
+            {local.m12, local.m13, local.m14}, axes[static_cast<std::size_t>(parent)], scales[parent]);
+        local.m12 = offset.x;
+        local.m13 = offset.y;
+        local.m14 = offset.z;
+        out[static_cast<std::size_t>(boneIndex)] = MatrixMultiply(local, out[static_cast<std::size_t>(parent)]);
+    }
+}
+
+Matrix ownScaleMatrix(Vector3 axis, const BoneScale& scale) {
+    const float s = scale.size;
+    const float k = scale.length - 1.0f;
+    Matrix matrix = MatrixIdentity();
+    matrix.m0 = s * (1.0f + k * axis.x * axis.x);
+    matrix.m5 = s * (1.0f + k * axis.y * axis.y);
+    matrix.m10 = s * (1.0f + k * axis.z * axis.z);
+    matrix.m1 = matrix.m4 = s * k * axis.x * axis.y;
+    matrix.m2 = matrix.m8 = s * k * axis.x * axis.z;
+    matrix.m6 = matrix.m9 = s * k * axis.y * axis.z;
+    return matrix;
+}
+
+float maxJointReach(const std::vector<Matrix>& globals) {
+    float reach = 0.0f;
+    for (const Matrix& global : globals) {
+        reach = std::max(reach, Vector3Length({global.m12, global.m13, global.m14}));
+    }
+    return reach;
+}
+
+PoseScaleResult finishPose(
+    Model& model,
+    const std::vector<Matrix>& bind,
+    std::vector<Matrix>& current,
+    const BoneScale* scales,
+    const std::uint8_t* hiddenBones) {
+    const int boneCount = model.skeleton.boneCount;
+    const BoneInfo* bones = model.skeleton.bones;
+    PoseScaleResult result{};
+    const bool scaled = hasBoneScaling(scales, boneCount) && parentsPrecedeChildren(bones, boneCount);
+    std::vector<Vector3> axes;
+    if (scaled) {
+        axes = boneAxes(bones, boneCount, bind);
+        std::vector<Matrix> scaledBind;
+        rebuildScaledPose(bones, boneCount, bind, axes, scales, 0.0f, scaledBind);
+        std::vector<bool> leaf(static_cast<std::size_t>(boneCount), true);
+        for (int boneIndex = 0; boneIndex < boneCount; ++boneIndex) {
+            if (bones[boneIndex].parent >= 0) {
+                leaf[static_cast<std::size_t>(bones[boneIndex].parent)] = false;
+            }
+        }
+        int lowest = -1;
+        for (int boneIndex = 0; boneIndex < boneCount; ++boneIndex) {
+            if (leaf[static_cast<std::size_t>(boneIndex)] &&
+                (lowest < 0 ||
+                 bind[static_cast<std::size_t>(boneIndex)].m13 < bind[static_cast<std::size_t>(lowest)].m13)) {
+                lowest = boneIndex;
+            }
+        }
+        if (lowest >= 0) {
+            result.lift = scales[lowest].size * bind[static_cast<std::size_t>(lowest)].m13 -
+                scaledBind[static_cast<std::size_t>(lowest)].m13;
+        }
+        float partSpread = 1.0f;
+        for (int boneIndex = 0; boneIndex < boneCount; ++boneIndex) {
+            partSpread = std::max(partSpread, scales[boneIndex].size * std::max(scales[boneIndex].length, 1.0f));
+        }
+        const float bindReach = maxJointReach(bind);
+        const float scaledReach = maxJointReach(scaledBind);
+        result.spread = std::max(partSpread, bindReach > 1e-5f ? scaledReach / bindReach : 1.0f);
+        std::vector<Matrix> unscaled = current;
+        rebuildScaledPose(bones, boneCount, unscaled, axes, scales, result.lift, current);
+    }
+    for (int boneIndex = 0; boneIndex < boneCount; ++boneIndex) {
+        const Matrix& currentMatrix = current[static_cast<std::size_t>(boneIndex)];
+        const Matrix inverseBind = MatrixInvert(bind[static_cast<std::size_t>(boneIndex)]);
+        model.currentPose[boneIndex] = transformFromMatrix(currentMatrix);
+        model.boneMatrices[boneIndex] = scaled
+            ? MatrixMultiply(
+                  MatrixMultiply(inverseBind, ownScaleMatrix(axes[static_cast<std::size_t>(boneIndex)], scales[boneIndex])),
+                  currentMatrix)
+            : MatrixMultiply(inverseBind, currentMatrix);
+    }
+    collapseHiddenBones(bones, boneCount, hiddenBones, current.data(), model.boneMatrices);
+    return result;
+}
+
+}
+
+PoseScaleResult updateRiggedModelAnimation(
     Model& model,
     const ModelAnimation& anim,
     float frame,
     const std::vector<Matrix>* bindGlobalMatrices,
-    const std::vector<std::vector<Matrix>>* matrixKeyframes) {
+    const AnimClipMatrices* matrixClip,
+    bool skinVertices,
+    const BoneScale* boneScales,
+    const std::uint8_t* hiddenBones) {
+    const std::vector<std::vector<Matrix>>* matrixKeyframes =
+        matrixClip != nullptr && !matrixClip->keyframes.empty() ? &matrixClip->keyframes : nullptr;
     if (model.boneMatrices == nullptr || model.skeleton.bones == nullptr || model.currentPose == nullptr ||
         anim.keyframePoses == nullptr || anim.keyframeCount <= 0) {
-        return;
+        return {};
     }
 
     int currentFrame = static_cast<int>(frame);
@@ -567,53 +877,59 @@ void updateRiggedModelAnimation(
 
     if (hasMatrixKeyframes && bindMatrices == nullptr) {
         TraceLog(LOG_WARNING, "RIG: matrix animation tracks require a .bind file");
-        return;
+        return {};
     }
 
+    std::vector<Matrix> current;
     if (hasMatrixKeyframes && bindMatrices != nullptr) {
         static bool loggedMatrixSkinning = false;
         if (!loggedMatrixSkinning) {
             TraceLog(
-                LOG_INFO,
+                LOG_DEBUG,
                 "RIG: using matrix skinning (%s bind source)",
                 bindGlobalMatrices != nullptr ? ".bind file" : "clip frame 0");
             loggedMatrixSkinning = true;
         }
-        for (int boneIndex = 0; boneIndex < boneCount; ++boneIndex) {
-            const Matrix& bindMatrix = (*bindMatrices)[static_cast<std::size_t>(boneIndex)];
-            const Matrix& fromMatrix =
-                (*matrixKeyframes)[static_cast<std::size_t>(currentFrame)][static_cast<std::size_t>(boneIndex)];
-            const Matrix& toMatrix =
-                (*matrixKeyframes)[static_cast<std::size_t>(nextFrame)][static_cast<std::size_t>(boneIndex)];
-            const Matrix currentMatrix = interpolatePoseMatrices(fromMatrix, toMatrix, blend);
-            model.currentPose[boneIndex] = transformFromMatrix(currentMatrix);
-            model.boneMatrices[boneIndex] = skinMatrixForGpu(bindMatrix, currentMatrix);
+        const bool hasLocal = matrixClip->localKeyframes.size() == matrixKeyframes->size() &&
+            matrixClip->localKeyframes[static_cast<std::size_t>(currentFrame)].size() ==
+                static_cast<std::size_t>(boneCount) &&
+            matrixClip->localKeyframes[static_cast<std::size_t>(nextFrame)].size() ==
+                static_cast<std::size_t>(boneCount);
+        interpolatePoseFrames(
+            model.skeleton.bones,
+            boneCount,
+            (*matrixKeyframes)[static_cast<std::size_t>(currentFrame)].data(),
+            (*matrixKeyframes)[static_cast<std::size_t>(nextFrame)].data(),
+            blend,
+            current,
+            hasLocal ? matrixClip->localKeyframes[static_cast<std::size_t>(currentFrame)].data() : nullptr,
+            hasLocal ? matrixClip->localKeyframes[static_cast<std::size_t>(nextFrame)].data() : nullptr);
+        const PoseScaleResult result = finishPose(model, *bindMatrices, current, boneScales, hiddenBones);
+        if (skinVertices) {
+            updateSkinnedMeshVertexBuffers(model);
         }
-        updateSkinnedMeshVertexBuffers(model);
-        return;
+        return result;
     }
 
+    std::vector<Matrix> fromFrame(static_cast<std::size_t>(boneCount));
+    std::vector<Matrix> toFrame(static_cast<std::size_t>(boneCount));
     for (int boneIndex = 0; boneIndex < boneCount; ++boneIndex) {
-        model.currentPose[boneIndex].translation = Vector3Lerp(
-            anim.keyframePoses[currentFrame][boneIndex].translation,
-            anim.keyframePoses[nextFrame][boneIndex].translation,
-            blend);
-        model.currentPose[boneIndex].rotation = QuaternionSlerp(
-            anim.keyframePoses[currentFrame][boneIndex].rotation,
-            anim.keyframePoses[nextFrame][boneIndex].rotation,
-            blend);
-        model.currentPose[boneIndex].scale = Vector3Lerp(
-            anim.keyframePoses[currentFrame][boneIndex].scale,
-            anim.keyframePoses[nextFrame][boneIndex].scale,
-            blend);
-
-        const Matrix bindPoseMatrix = matrixFromPoseTransform(model.skeleton.bindPose[boneIndex]);
-        const Matrix currentPoseMatrix = matrixFromPoseTransform(model.currentPose[boneIndex]);
-        model.boneMatrices[boneIndex] =
-            MatrixMultiply(MatrixInvert(bindPoseMatrix), currentPoseMatrix);
+        fromFrame[static_cast<std::size_t>(boneIndex)] =
+            matrixFromPoseTransform(anim.keyframePoses[currentFrame][boneIndex]);
+        toFrame[static_cast<std::size_t>(boneIndex)] =
+            matrixFromPoseTransform(anim.keyframePoses[nextFrame][boneIndex]);
     }
+    interpolatePoseFrames(model.skeleton.bones, boneCount, fromFrame.data(), toFrame.data(), blend, current);
+    std::vector<Matrix> bindPose(static_cast<std::size_t>(boneCount));
+    for (int boneIndex = 0; boneIndex < boneCount; ++boneIndex) {
+        bindPose[static_cast<std::size_t>(boneIndex)] = matrixFromPoseTransform(model.skeleton.bindPose[boneIndex]);
+    }
+    const PoseScaleResult result = finishPose(model, bindPose, current, boneScales, hiddenBones);
 
-    updateSkinnedMeshVertexBuffers(model);
+    if (skinVertices) {
+        updateSkinnedMeshVertexBuffers(model);
+    }
+    return result;
 }
 
 }

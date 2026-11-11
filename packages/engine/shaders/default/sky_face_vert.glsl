@@ -1,5 +1,9 @@
 #version 330
 
+/// Passes brush face vertices through with their world position.
+///
+/// @used-by Brush faces whose material has the sky flag, paired with `default/sky_face_frag`.
+
 in vec3 vertexPosition;
 
 uniform mat4 mvp;

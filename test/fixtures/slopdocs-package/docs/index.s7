@@ -1,0 +1,21 @@
+"Front page of the fixture package."
+
+(page "index" "Fixture Game"
+  (image "images/banner.png" "Blue banner" "The banner image is copied through from docs/images.")
+  (p "Fixture Game is a tiny package that exercises every node slopdocs knows about. "
+     "It links to " (page-ref "modding") " and to the "
+     (page-ref "guides/weapons" "weapons guide") ".")
+  (section "Running"
+    (p "Start the game with " (kbd "F5") " in the launcher or from a shell:")
+    (code "slopengine --game fixture --map e1m1")
+    (ul "One" "Two" (item (p "Three with a paragraph.") (p "And a second one.")))
+    (ol "First" "Second"))
+  (section "Nested"
+    (section "Deeper"
+      (p "A third level heading.")
+      (section "Deepest"
+        (p "A fourth level heading.")))
+    (quote-block "A quoted remark.")
+    (hr)
+    (dl (term "term" "A definition with " (em "emphasis") ".")
+        (term "other" "Another definition."))))

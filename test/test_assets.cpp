@@ -1,5 +1,6 @@
 #include "test_assert.hpp"
 
+#include "assets/asset_store.hpp"
 #include "assets/material_loader.hpp"
 #include "assets/prt_loader.hpp"
 #include "assets/sprite_anim_loader.hpp"
@@ -8,6 +9,35 @@
 namespace slopengine {
 
 void runAssetTests() {
+    {
+        MaterialAsset asset{};
+        const bool ok = parseMaterialAsset(
+            "(material\n"
+            "  (shader \"default\")\n"
+            "  (texture \"characters/flabby/skin\")\n"
+            "  (deform-mask \"characters/flabby/jiggle\"))\n",
+            asset);
+        CHECK(ok);
+        CHECK_EQ(asset.deformMask, std::string("characters/flabby/jiggle"));
+        MaterialAsset roundTrip{};
+        CHECK(parseMaterialAsset(serializeMaterialAsset(asset), roundTrip));
+        CHECK_EQ(roundTrip.deformMask, std::string("characters/flabby/jiggle"));
+        MaterialAsset plain{};
+        CHECK(parseMaterialAsset("(material (shader \"default\"))", plain));
+        CHECK(serializeMaterialAsset(plain).find("deform-mask") == std::string::npos);
+    }
+
+    {
+        const std::string vert = "#version 330\nuniform int skinned;\n#include \"MODEL_DEFORM\"\nvoid main() {}\n";
+        const std::string spliced = spliceModelDeform(vert, "#version 330\nuniform float deformTime;\nvoid modelDeform() {}\n");
+        CHECK(spliced.find("#include") == std::string::npos);
+        CHECK(spliced.find("uniform float deformTime;") != std::string::npos);
+        CHECK_EQ(spliced.rfind("#version"), std::size_t{0});
+        const std::string fallback = spliceModelDeform(vert, "");
+        CHECK(fallback.find("void modelDeform(inout vec3 position") != std::string::npos);
+        CHECK_EQ(spliceModelDeform("void main() {}", "x"), std::string("void main() {}"));
+    }
+
     {
         MaterialAsset asset{};
         const bool ok = parseMaterialAsset(
@@ -101,7 +131,9 @@ void runAssetTests() {
             "    (burst 8)\n"
             "    (bounce 0.4)\n"
             "    (max-bounces 2)\n"
-            "    (die-on-hit #f)))\n",
+            "    (die-on-hit #f)\n"
+            "    (stick #t)\n"
+            "    (orient #t)))\n",
             asset);
         CHECK(ok);
         CHECK(asset.loop);
@@ -116,6 +148,10 @@ void runAssetTests() {
         CHECK_EQ(asset.emitters[0].lifetime.min, 1.0f);
         CHECK_EQ(asset.emitters[0].lifetime.max, 2.0f);
         CHECK(asset.emitters[0].shape == ParticleShapeKind::Sphere);
+        CHECK_FALSE(asset.emitters[0].stickOnHit);
+        CHECK_FALSE(asset.emitters[0].orientDirection);
+        CHECK(asset.emitters[1].stickOnHit);
+        CHECK(asset.emitters[1].orientDirection);
         CHECK_EQ(asset.emitters[0].direction.x, 0.0f);
         CHECK_EQ(asset.emitters[0].direction.y, 1.0f);
         CHECK_EQ(asset.emitters[0].direction.z, 0.0f);

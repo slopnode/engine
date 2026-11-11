@@ -72,6 +72,17 @@ Materials, particle systems, and icon atlases don't have their own tutorial yet;
 
 A material can take its albedo from a texture graph instead of a PNG with `(texture-graph "path")`; the graph format and how its outputs map onto the material are on the @ref slopmat page.
 
+A material can name a deform mask with `(deform-mask "path")`, a texture read in the vertex stage by the model deform hook below. Materials without one leave `deformMaskBound` at 0.
+
+The model vertex shaders `default/lightmap_vert`, `default/skinning_vert` and `default/shadow_depth_vert` splice in `shaders/default/model_deform.glsl` and call its `modelDeform(inout vec3 position, inout vec3 normal, vec2 texCoord, vec4 boneIndices, vec4 boneWeights)` after skinning, in model space. The shadow pass passes a placeholder normal. The engine's copy does nothing, and a game package changes every model's deform by shipping its own file at that path. The hook can declare these uniforms, which the engine fills on each draw:
+
+| Uniform | Value |
+| --- | --- |
+| `deformTime` | Seconds since the engine started |
+| `deformMask` | The material's deform mask, a `sampler2D` read with `textureLod` |
+| `deformMaskBound` | 1 when the material has a deform mask, otherwise 0 |
+| any `vec4` | Values set per actor with `actor-set-shader-param!`, zero for every other draw |
+
 A material can also carry an optional `(sound ...)` block giving Steam Audio's per-surface acoustic properties (`(absorption low mid high)`, `(scattering n)`, `(transmission low mid high)`); any field left out, or the whole block left out, keeps the engine's default acoustic values.
 
 <pre><code class="language-scheme">; particles/fx/generic-smoke.prt
@@ -96,6 +107,8 @@ A material can also carry an optional `(sound ...)` block giving Steam Audio's p
     (size-over-life 1.0 0.45)
     (alpha-over-life 1.0 0.0)))
 </code></pre>
+
+A world-space emitter fires along `direction` as written, whichever way the system faces. `(orient #t)` turns `direction` with the system instead, so a system spawned along a vector, or kept on a bone with `particle-spawn-bone`, sprays that way. With `(sim cpu)`, `(stick #t)` stops a particle where it hits the world and leaves it there for the rest of its lifetime, which with a late fade in `alpha-over-life` makes blood drops land and stay as small splats.
 
 An `.iconmap` describes one atlas image: its size, then a rect per icon id (`x y w h` in atlas pixels), used to pull a single icon out of the shared `Icon` PNG for a UI draw call:
 

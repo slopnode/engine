@@ -41,23 +41,15 @@ void buildSunBasis(Vector3 toLight, Vector3& tangentOut, Vector3& bitangentOut) 
     bitangentOut = normalize3(cross2);
 }
 
-/** Projects a directional (sun) light into the probe's L1 basis {1, x, y, z}.
- *  The sun is modeled as illuminating the whole hemisphere facing @p toLight at flat
- *  radiance @p light (matching a clamped-cosine lobe), which is the least-squares-optimal
- *  fit of a hemisphere step function against this basis: the DC term picks up half the
- *  hemisphere's average, and the linear term along @p toLight picks up 3/4 of it. Rays in
- *  the Monte Carlo gather above never see this contribution directly (sky faces have no
- *  lightmap chart and correctly contribute nothing on their own), so this is added once,
- *  analytically, per probe. */
-void addSunLobe(Vector3 coeff[4], Vector3 toLight, Vector3 light) {
-    coeff[0].x += light.x * 0.5f;
-    coeff[0].y += light.y * 0.5f;
-    coeff[0].z += light.z * 0.5f;
-    const float axis[3] = {toLight.x, toLight.y, toLight.z};
+void addCosineToCube(Vector3 faces[6], Vector3 direction, Vector3 radiance, float weight) {
+    const float axis[3] = {direction.x, direction.y, direction.z};
     for (int i = 0; i < 3; ++i) {
-        coeff[i + 1].x += light.x * 0.75f * axis[i];
-        coeff[i + 1].y += light.y * 0.75f * axis[i];
-        coeff[i + 1].z += light.z * 0.75f * axis[i];
+        const float cosine = axis[i];
+        Vector3& face = faces[i * 2 + (cosine >= 0.0f ? 0 : 1)];
+        const float w = std::fabs(cosine) * weight;
+        face.x += radiance.x * w;
+        face.y += radiance.y * w;
+        face.z += radiance.z * w;
     }
 }
 
@@ -455,9 +447,7 @@ std::vector<LightProbe> bakeLightProbes(
     }
 
     sampleCount = std::max(sampleCount, 1);
-    const float dcWeight = 1.0f / static_cast<float>(sampleCount);
-    const float linearWeight = 3.0f / static_cast<float>(sampleCount);
-    const float basisWeight[4] = {dcWeight, linearWeight, linearWeight, linearWeight};
+    const float rayWeight = 4.0f / static_cast<float>(sampleCount);
     std::vector<Vector3> directions(static_cast<std::size_t>(sampleCount));
     for (int i = 0; i < sampleCount; ++i) {
         directions[static_cast<std::size_t>(i)] = fibonacciSphereDirection(i, sampleCount);
@@ -465,7 +455,7 @@ std::vector<LightProbe> bakeLightProbes(
 
     constexpr float kMaxRayDistance = 10000.0f;
     for (const Vector3& position : positions) {
-        Vector3 coeff[4] = {};
+        Vector3 cube[kProbeCubeFaces] = {};
         for (const Vector3& dir : directions) {
             Vector3 radiance = ambientFallback;
             const auto hit = raycastBspSurfaces(sceneBvh, position, dir, kMaxRayDistance);
@@ -478,12 +468,7 @@ std::vector<LightProbe> bakeLightProbes(
                     hit->faceIndex,
                     hit->point);
             }
-            const float basis[4] = {1.0f, dir.x, dir.y, dir.z};
-            for (int i = 0; i < 4; ++i) {
-                coeff[i].x += radiance.x * basis[i] * basisWeight[i];
-                coeff[i].y += radiance.y * basis[i] * basisWeight[i];
-                coeff[i].z += radiance.z * basis[i] * basisWeight[i];
-            }
+            addCosineToCube(cube, dir, radiance, rayWeight);
         }
 
         for (const RadiosityLight& light : lights) {
@@ -524,16 +509,15 @@ std::vector<LightProbe> bakeLightProbes(
                 light.color.y * light.intensity * visibility * sunTint.y,
                 light.color.z * light.intensity * visibility * sunTint.z,
             };
-            addSunLobe(coeff, toLight, sunRadiance);
+            addCosineToCube(cube, toLight, sunRadiance, 1.0f);
         }
 
         LightProbe probe;
         probe.cellX = static_cast<std::int32_t>(std::lround(position.x / cellSize));
         probe.cellY = static_cast<std::int32_t>(std::lround(position.y / cellSize));
         probe.cellZ = static_cast<std::int32_t>(std::lround(position.z / cellSize));
-        for (int i = 0; i < 4; ++i) {
-            probe.shRgbe[static_cast<std::size_t>(i)] =
-                encodeRgbe(std::max(coeff[i].x, 0.0f), std::max(coeff[i].y, 0.0f), std::max(coeff[i].z, 0.0f));
+        for (std::size_t i = 0; i < kProbeCubeFaces; ++i) {
+            probe.cubeRgbe[i] = encodeRgbe(cube[i].x, cube[i].y, cube[i].z);
         }
         result.push_back(probe);
     }

@@ -29,6 +29,8 @@ struct s7_cell;
 
 namespace slopengine {
 
+std::string spliceModelDeform(std::string source, std::string deform);
+
 /** Cached asset loader backed by mounted packages. */
 class AssetStore {
 public:
@@ -141,8 +143,11 @@ public:
         std::string name;
     };
 
-    /** Lists maps with map.meta under mounted packages' maps/ folders. */
+    /** Lists maps with map.meta under mounted packages' maps/ folders, without the title screen's map. */
     std::vector<MapListEntry> listMaps() const;
+    /** Names of the bot scripts under mounted packages' scripts/bots/, the base game's first. */
+    std::vector<std::string> listBotScripts() const;
+    void setTitleMap(std::string id) { titleMap_ = std::move(id); }
 
     /** Returns true when a compiled map BSP exists at @p path. */
     bool hasMapBsp(std::string_view path) const;
@@ -212,6 +217,18 @@ public:
 
     /** Returns a cached rigged geometry model, loading it when needed. */
     Model getGeoModel(std::string_view path);
+
+    /** Returns the cached parsed geometry asset at @p path, or nullptr when missing or invalid. */
+    const GeoAsset* getGeoAsset(std::string_view path);
+
+    /** Drops the cached parsed geometry asset at @p path so the next get re-reads from disk. */
+    void invalidateGeo(std::string_view path);
+
+    /** Drops the cached animation bank at @p path so the next get re-reads from disk. */
+    void invalidateAnim(std::string_view path);
+
+    /** Resolves the skeleton virtual path a geometry asset binds to, or empty for static geo. */
+    std::string resolveGeoSkeletonPath(std::string_view geoPath);
 
     /** Resolves and returns a raylib material for @p path. */
     Material resolveMaterial(std::string_view path);
@@ -294,6 +311,8 @@ public:
 
     /** Returns the text source of the shader at @p path. */
     std::string getShaderSource(std::string_view path);
+
+    std::string getModelShaderSource(std::string_view path);
 
     /** Returns the text source of the material at @p path. */
     std::string getMaterialSource(std::string_view path);
@@ -388,12 +407,15 @@ public:
     /** Loads and evaluates the prefab things script at @p path in @p scheme. */
     bool loadPrefabThings(s7_scheme* scheme, std::string_view path, s7_cell* environment = nullptr);
 
+    Shader getSkinningShader();
+
 private:
+    std::string titleMap_;
     static std::string cacheKey(std::string_view path);
     void mountPackages(const AppConfig& config);
-    Shader getSkinningShader();
     void applySkinningToModel(Model& model);
     void ensureSkeletonBindLoaded(std::string_view skeletonPath);
+    std::string resolveSkeletonPathForGeo(const GeoAsset& asset, std::string_view geoPath) const;
     static std::string skeletonBindPath(std::string_view skeletonPath);
 
     VirtualFileSystem vfs_;
@@ -402,6 +424,7 @@ private:
     std::unordered_map<std::string, Texture> cubemaps_;
     std::unordered_map<std::string, Model> models_;
     std::unordered_map<std::string, Model> geos_;
+    std::unordered_map<std::string, GeoAsset> geoAssets_;
     std::unordered_map<std::string, MaterialAsset> materialAssets_;
     std::unordered_map<std::string, SkeletonAsset> skeletons_;
     std::unordered_map<std::string, std::vector<Matrix>> skeletonBindMatrices_;

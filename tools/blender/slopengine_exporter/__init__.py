@@ -4,19 +4,21 @@ bl_info = {
     "version": (0, 1, 0),
     "blender": (4, 0, 0),
     "location": "File > Export > Slopengine",
-    "description": "Export slopengine skeleton, geo, and anim assets",
+    "description": "Export slopengine skeleton, geo, and anim assets, and build rigid mannequins",
     "category": "Import-Export",
 }
 
 import bpy
 
-from . import export_anim, export_geo, export_multiple, export_skeleton
+from . import autouv, export_anim, export_geo, export_multiple, export_skeleton, mannequin
 
 modules = (
     export_skeleton,
     export_geo,
     export_anim,
     export_multiple,
+    autouv,
+    mannequin,
 )
 
 
@@ -62,9 +64,13 @@ def register():
             bpy.utils.register_class(cls)
     bpy.utils.register_class(TOPBAR_MT_file_export_slopengine)
     bpy.types.TOPBAR_MT_file_export.append(menu_func_export)
+    bpy.types.VIEW3D_MT_add.append(mannequin.menu_func_add)
+    bpy.types.VIEW3D_MT_object.append(mannequin.menu_func_object)
 
 
 def unregister():
+    bpy.types.VIEW3D_MT_object.remove(mannequin.menu_func_object)
+    bpy.types.VIEW3D_MT_add.remove(mannequin.menu_func_add)
     bpy.types.TOPBAR_MT_file_export.remove(menu_func_export)
     bpy.utils.unregister_class(TOPBAR_MT_file_export_slopengine)
     for module in reversed(modules):

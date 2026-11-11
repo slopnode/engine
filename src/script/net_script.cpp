@@ -1,0 +1,700 @@
+#include "script/net_script.hpp"
+
+#include "core/log.hpp"
+#include "core/sim_clock.hpp"
+#include "game/net_control.hpp"
+#include "net/net_rewind.hpp"
+#include "net/net_state.hpp"
+#include "script/player_target.hpp"
+#include "script/proc_role.hpp"
+#include "script/s7_read.hpp"
+#include "script/script_scope.hpp"
+
+#include <s7.h>
+
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <string>
+
+namespace slopengine {
+
+namespace {
+
+flecs::world* g_netWorld = nullptr;
+
+s7_pointer netError(s7_scheme* sc, const std::string& message) {
+    return s7_error(sc, s7_make_symbol(sc, "net"), s7_list(sc, 1, s7_make_string(sc, message.c_str())));
+}
+
+bool readTarget(s7_pointer value, NetTarget& out) {
+    if (s7_is_symbol(value) && std::string_view(s7_symbol_name(value)) == "session") {
+        out = NetTarget{NetScopeKind::Session, 0, {}};
+        return true;
+    }
+    if (!s7_is_string(value)) {
+        return false;
+    }
+    return resolveNetTarget(*g_netWorld, s7_string(value), out);
+}
+
+std::string targetText(s7_scheme* sc, s7_pointer value) {
+    char* text = s7_object_to_c_string(sc, value);
+    std::string out = text != nullptr ? text : "?";
+    std::free(text);
+    return out;
+}
+
+s7_pointer fieldAlist(s7_scheme* sc, const std::vector<std::pair<const NetField*, const NetValue*>>& fields) {
+    s7_pointer list = s7_nil(sc);
+    for (auto it = fields.rbegin(); it != fields.rend(); ++it) {
+        if (!it->first->save) {
+            continue;
+        }
+        list = s7_cons(
+            sc, s7_cons(sc, s7_make_symbol(sc, it->first->name.c_str()), netValueToScheme(sc, *it->second)), list);
+    }
+    return list;
+}
+
+int restoreFields(s7_scheme* sc, const NetTarget& target, s7_pointer entries) {
+    int applied = 0;
+    for (s7_pointer cursor = entries; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
+        const s7_pointer entry = s7_car(cursor);
+        if (!s7_is_pair(entry) || !s7_is_symbol(s7_car(entry))) {
+            continue;
+        }
+        const NetField* field = nullptr;
+        NetValue* slot = findNetValue(*g_netWorld, target, s7_symbol_name(s7_car(entry)), &field);
+        if (slot == nullptr || !field->save) {
+            continue;
+        }
+        NetValue value;
+        std::string error;
+        if (!netValueFromScheme(sc, s7_cdr(entry), field->type, value, error)) {
+            Log::warning(LogCategory::Script, "NET: saved %s skipped, %s", field->name.c_str(), error.c_str());
+            continue;
+        }
+        *slot = std::move(value);
+        ++applied;
+    }
+    return applied;
+}
+
+s7_pointer g_net_get(s7_scheme* sc, s7_pointer args) {
+    ArgReader in(sc, "net-get", args);
+    const s7_pointer id = in.any("player id, thing id or 'session");
+    const char* name = in.name("field symbol");
+    if (!in.ok()) {
+        return in.error();
+    }
+    NetTarget target;
+    if (g_netWorld == nullptr || !readTarget(id, target)) {
+        return s7_f(sc);
+    }
+    const NetValue* value = findNetValue(*g_netWorld, target, name, nullptr);
+    if (value == nullptr) {
+        return netError(sc, std::string("net-get: ") + targetText(sc, id) + " has no declared field " + name);
+    }
+    return netValueToScheme(sc, *value);
+}
+
+bool netClientWorld() {
+    return g_netWorld != nullptr && g_netWorld->has<SimRemote>();
+}
+
+s7_pointer g_net_set(s7_scheme* sc, s7_pointer args) {
+    ArgReader in(sc, "net-set!", args);
+    const s7_pointer id = in.any("player id, thing id or 'session");
+    const char* name = in.name("field symbol");
+    const s7_pointer raw = in.any("value");
+    if (!in.ok()) {
+        return in.error();
+    }
+    NetTarget target;
+    if (g_netWorld == nullptr || netClientWorld() || !readTarget(id, target)) {
+        return s7_f(sc);
+    }
+    const NetField* field = nullptr;
+    NetValue* slot = findNetValue(*g_netWorld, target, name, &field);
+    if (slot == nullptr) {
+        return netError(sc, std::string("net-set!: ") + targetText(sc, id) + " has no declared field " + name);
+    }
+    if (callerRole() == PackageRole::Mod && field->role != PackageRole::Mod) {
+        return netError(sc, "net-set!: a mod can only set fields mods declare, not " + field->name);
+    }
+    NetValue value;
+    std::string error;
+    if (!netValueFromScheme(sc, raw, field->type, value, error)) {
+        return netError(sc, "net-set!: " + field->name + " " + error);
+    }
+    *slot = std::move(value);
+    return s7_t(sc);
+}
+
+s7_pointer g_net_reset(s7_scheme* sc, s7_pointer) {
+    if (callerRole() == PackageRole::Mod) {
+        return netError(sc, "net-reset!: mods can't reset declared state");
+    }
+    if (g_netWorld == nullptr || netClientWorld()) {
+        return s7_f(sc);
+    }
+    resetNetState(*g_netWorld);
+    return s7_t(sc);
+}
+
+s7_pointer g_net_save_state(s7_scheme* sc, s7_pointer) {
+    if (g_netWorld == nullptr || !g_netWorld->has<NetStore>()) {
+        return s7_nil(sc);
+    }
+    NetGcPause pause(sc);
+    const NetTarget session{NetScopeKind::Session, 0, {}};
+    s7_pointer players = s7_nil(sc);
+    const std::size_t playerCount = g_netWorld->get<NetStore>().players.size();
+    for (std::size_t i = playerCount; i > 0; --i) {
+        const NetTarget player{NetScopeKind::Player, i - 1, {}};
+        const std::string& id = g_netWorld->get<NetStore>().players[i - 1].id;
+        players = s7_cons(
+            sc,
+            s7_cons(
+                sc,
+                s7_make_symbol(sc, "player"),
+                s7_cons(sc, s7_make_string(sc, id.c_str()), fieldAlist(sc, netTargetFields(*g_netWorld, player)))),
+            players);
+    }
+    const s7_pointer result = s7_cons(
+        sc,
+        s7_cons(sc, s7_make_symbol(sc, "session"), fieldAlist(sc, netTargetFields(*g_netWorld, session))),
+        players);
+    return result;
+}
+
+s7_pointer g_net_restore_state(s7_scheme* sc, s7_pointer args) {
+    ArgReader in(sc, "net-restore-state!", args);
+    const s7_pointer form = in.list("state list from net-save-state");
+    if (!in.ok()) {
+        return in.error();
+    }
+    if (callerRole() == PackageRole::Mod) {
+        return netError(sc, "net-restore-state!: mods can't restore declared state");
+    }
+    if (g_netWorld == nullptr || netClientWorld()) {
+        return s7_f(sc);
+    }
+    int applied = 0;
+    for (s7_pointer cursor = form; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
+        const s7_pointer entry = s7_car(cursor);
+        if (!s7_is_pair(entry) || !s7_is_symbol(s7_car(entry))) {
+            continue;
+        }
+        const std::string_view kind = s7_symbol_name(s7_car(entry));
+        if (kind == "session") {
+            applied += restoreFields(sc, NetTarget{NetScopeKind::Session, 0, {}}, s7_cdr(entry));
+        } else if (kind == "player" && s7_is_pair(s7_cdr(entry)) && s7_is_string(s7_cadr(entry))) {
+            NetTarget target;
+            if (resolveNetTarget(*g_netWorld, s7_string(s7_cadr(entry)), target) &&
+                target.kind == NetScopeKind::Player) {
+                applied += restoreFields(sc, target, s7_cddr(entry));
+            }
+        }
+    }
+    return s7_make_integer(sc, applied);
+}
+
+s7_pointer whereValue(s7_scheme* sc, const NetEventMessage& event) {
+    switch (event.where) {
+    case NetEventWhere::Point:
+        return s7_list(
+            sc,
+            3,
+            s7_make_real(sc, event.point[0]),
+            s7_make_real(sc, event.point[1]),
+            s7_make_real(sc, event.point[2]));
+    case NetEventWhere::Player:
+        return s7_make_string(sc, event.player.c_str());
+    case NetEventWhere::None:
+        break;
+    }
+    return s7_f(sc);
+}
+
+bool readWhere(s7_scheme* sc, s7_pointer value, NetEventMessage& out) {
+    if (value == s7_f(sc)) {
+        out.where = NetEventWhere::None;
+        return true;
+    }
+    if (s7_is_string(value)) {
+        out.where = NetEventWhere::Player;
+        out.player = s7_string(value);
+        return out.player.size() <= 128;
+    }
+    if (!s7_is_pair(value)) {
+        return false;
+    }
+    out.where = NetEventWhere::Point;
+    s7_pointer cursor = value;
+    for (int i = 0; i < 3; ++i) {
+        if (!s7_is_pair(cursor) || !s7_is_number(s7_car(cursor)) || !s7_is_real(s7_car(cursor))) {
+            return false;
+        }
+        out.point[i] = static_cast<float>(s7_number_to_real(sc, s7_car(cursor)));
+        if (!std::isfinite(out.point[i])) {
+            return false;
+        }
+        cursor = s7_cdr(cursor);
+    }
+    return s7_is_null(sc, cursor);
+}
+
+s7_pointer predictNetEvent(s7_scheme* sc, const NetEventDef& def, const NetEventMessage& event) {
+    if (!def.predict) {
+        return netError(sc, "net-event!: " + def.name + " isn't declared (predict #t), so predict can't raise it");
+    }
+    if (g_netWorld == nullptr || !g_netWorld->has<NetPrediction>() || !g_netWorld->get<NetPrediction>().active) {
+        return s7_f(sc);
+    }
+    if (def.to == NetEventAudience::Owner && (event.where != NetEventWhere::Player || event.player != kLocalNetPlayerId)) {
+        return netError(sc, "net-event!: predict can only raise " + def.name + " for its own player");
+    }
+    NetPrediction& prediction = g_netWorld->get_mut<NetPrediction>();
+    if (prediction.raised.size() >= kMaxPredictedEvents) {
+        prediction.raised.erase(prediction.raised.begin());
+    }
+    prediction.raised.push_back(NetPredictedEvent{event.eventId, prediction.tick, false});
+    deliverNetEvent(sc, event);
+    return s7_t(sc);
+}
+
+s7_pointer g_net_event(s7_scheme* sc, s7_pointer args) {
+    ArgReader in(sc, "net-event!", args);
+    const char* name = in.name("event symbol");
+    const s7_pointer where = in.any("point (x y z), player id or #f");
+    if (!in.ok()) {
+        return in.error();
+    }
+    const NetEventDef* def = netSchema().findEvent(name);
+    if (def == nullptr) {
+        return netError(sc, std::string("net-event!: no declared event ") + name);
+    }
+    if (callerRole() == PackageRole::Mod && def->role != PackageRole::Mod) {
+        return netError(sc, "net-event!: a mod can only send events mods declare, not " + def->name);
+    }
+    NetEventMessage event;
+    event.eventId = static_cast<std::uint32_t>(def->id);
+    if (!readWhere(sc, where, event)) {
+        return netError(sc, "net-event!: " + def->name + " needs a point (x y z), a player id or #f");
+    }
+    s7_pointer cursor = in.rest();
+    for (const NetEventArg& arg : def->args) {
+        if (!s7_is_pair(cursor)) {
+            return netError(sc, "net-event!: " + def->name + " is missing argument " + arg.name);
+        }
+        NetValue value;
+        std::string error;
+        if (!netValueFromScheme(sc, s7_car(cursor), arg.type, value, error)) {
+            return netError(sc, "net-event!: " + def->name + " " + arg.name + " " + error);
+        }
+        event.args.push_back(std::move(value));
+        cursor = s7_cdr(cursor);
+    }
+    if (!s7_is_null(sc, cursor)) {
+        return netError(sc, "net-event!: " + def->name + " takes " + std::to_string(def->args.size()) + " arguments");
+    }
+    if (currentScriptScope() == ScriptScope::Predict) {
+        return predictNetEvent(sc, *def, event);
+    }
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    const bool localPlayerHere = g_netWorld == nullptr || !g_netWorld->has<NetEventQueue>() ||
+        g_netWorld->get<NetEventQueue>().localPlayerHere;
+    if (def->to != NetEventAudience::Owner || event.where != NetEventWhere::Player ||
+        (event.player == kLocalNetPlayerId && localPlayerHere)) {
+        deliverNetEvent(sc, event);
+    }
+    if (g_netWorld != nullptr && g_netWorld->has<NetEventQueue>()) {
+        NetEventQueue& queue = g_netWorld->get_mut<NetEventQueue>();
+        if (queue.forward) {
+            const ScriptPlayerStack& players = scriptPlayerStack();
+            if (def->predict && players.saved.size() > players.floor) {
+                event.cause = players.current;
+            }
+            queue.pending.push_back(std::move(event));
+        }
+    }
+    return s7_t(sc);
+}
+
+s7_pointer g_net_command_tick(s7_scheme* sc, s7_pointer) {
+    if (g_netWorld == nullptr || !g_netWorld->has<NetPrediction>() || !g_netWorld->get<NetPrediction>().active) {
+        return s7_f(sc);
+    }
+    return s7_make_integer(sc, static_cast<s7_int>(g_netWorld->get<NetPrediction>().tick));
+}
+
+s7_pointer g_net_player_name(s7_scheme* sc, s7_pointer) {
+    if (g_netWorld == nullptr || !g_netWorld->has<NetIdentity>()) {
+        return s7_make_string(sc, kLocalNetPlayerId);
+    }
+    return s7_make_string(sc, g_netWorld->get<NetIdentity>().player.c_str());
+}
+
+s7_pointer g_player_display_name(s7_scheme* sc, s7_pointer args) {
+    std::string id = kLocalNetPlayerId;
+    if (g_netWorld != nullptr && g_netWorld->has<NetIdentity>()) {
+        id = g_netWorld->get<NetIdentity>().player;
+    }
+    if (s7_is_pair(args)) {
+        const s7_pointer arg = s7_car(args);
+        if (!s7_is_string(arg)) {
+            return s7_wrong_type_arg_error(sc, "player-display-name", 1, arg, "a player id string");
+        }
+        id = s7_string(arg);
+    }
+    if (g_netWorld == nullptr) {
+        return s7_make_string(sc, id.c_str());
+    }
+    return s7_make_string(sc, netDisplayName(*g_netWorld, id).c_str());
+}
+
+s7_pointer g_net_acked_command(s7_scheme* sc, s7_pointer) {
+    if (g_netWorld == nullptr || !g_netWorld->has<NetPrediction>() || !g_netWorld->get<NetPrediction>().active) {
+        return s7_f(sc);
+    }
+    return s7_make_integer(sc, static_cast<s7_int>(g_netWorld->get<NetPrediction>().ackedTick));
+}
+
+s7_pointer g_net_schema_hash(s7_scheme* sc, s7_pointer) {
+    char text[17];
+    std::snprintf(text, sizeof(text), "%016llx", static_cast<unsigned long long>(netSchema().hash()));
+    return s7_make_string(sc, text);
+}
+
+s7_pointer g_session_max_players(s7_scheme* sc, s7_pointer) {
+    if (g_netWorld == nullptr || !g_netWorld->has<NetSessionLimits>()) {
+        return s7_f(sc);
+    }
+    return s7_make_integer(sc, g_netWorld->get<NetSessionLimits>().maxPlayers);
+}
+
+s7_pointer g_session_kind(s7_scheme* sc, s7_pointer) {
+    if (g_netWorld == nullptr || !g_netWorld->has<NetSessionLimits>() || g_netWorld->get<NetSessionLimits>().kind.empty()) {
+        return s7_f(sc);
+    }
+    return s7_make_symbol(sc, g_netWorld->get<NetSessionLimits>().kind.c_str());
+}
+
+s7_pointer g_session_set_max_players(s7_scheme* sc, s7_pointer args) {
+    ArgReader in(sc, "session-set-max-players!", args);
+    const s7_int wanted = in.exactInteger("player count");
+    if (!in.ok()) {
+        return in.error();
+    }
+    if (g_netWorld == nullptr || !g_netWorld->has<NetSessionLimits>() || g_netWorld->get<NetSessionLimits>().remote) {
+        return s7_f(sc);
+    }
+    NetSessionLimits& limits = g_netWorld->get_mut<NetSessionLimits>();
+    limits.maxPlayers = static_cast<int>(std::clamp<s7_int>(wanted, 1, limits.playerCeiling));
+    return s7_make_integer(sc, limits.maxPlayers);
+}
+
+s7_pointer g_session_joinable(s7_scheme* sc, s7_pointer) {
+    if (g_netWorld == nullptr || !g_netWorld->has<NetSessionLimits>()) {
+        return s7_f(sc);
+    }
+    return s7_make_boolean(sc, g_netWorld->get<NetSessionLimits>().joinable);
+}
+
+s7_pointer g_session_set_joinable(s7_scheme* sc, s7_pointer args) {
+    ArgReader in(sc, "session-set-joinable!", args);
+    const bool joinable = in.boolean("#t or #f");
+    if (!in.ok()) {
+        return in.error();
+    }
+    if (g_netWorld == nullptr || !g_netWorld->has<NetSessionLimits>() || g_netWorld->get<NetSessionLimits>().remote) {
+        return s7_f(sc);
+    }
+    g_netWorld->get_mut<NetSessionLimits>().joinable = joinable;
+    return s7_make_boolean(sc, joinable);
+}
+
+s7_pointer g_session_players(s7_scheme* sc, s7_pointer) {
+    s7_pointer out = s7_nil(sc);
+    if (g_netWorld == nullptr || !g_netWorld->has<NetRoster>()) {
+        return out;
+    }
+    const std::vector<NetRosterEntry>& entries = g_netWorld->get<NetRoster>().entries;
+    for (auto entry = entries.rbegin(); entry != entries.rend(); ++entry) {
+        out = s7_cons(sc, s7_make_string(sc, entry->player.c_str()), out);
+    }
+    return out;
+}
+
+s7_pointer g_net_rejoin_record(s7_scheme* sc, s7_pointer args) {
+    ArgReader in(sc, "net-rejoin-record", args);
+    const std::string id = in.string("player id");
+    if (!in.ok()) {
+        return in.error();
+    }
+    const NetTravelRecord* record = g_netWorld != nullptr ? findNetRejoin(*g_netWorld, id) : nullptr;
+    if (record == nullptr) {
+        return s7_f(sc);
+    }
+    s7_pointer out = s7_nil(sc);
+    for (auto it = record->rbegin(); it != record->rend(); ++it) {
+        out = s7_cons(sc, s7_cons(sc, s7_make_symbol(sc, it->first.c_str()), netValueToScheme(sc, it->second)), out);
+    }
+    return out;
+}
+
+bool namedIn(s7_pointer names, std::string_view name) {
+    for (s7_pointer cursor = names; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
+        if (s7_is_symbol(s7_car(cursor)) && name == s7_symbol_name(s7_car(cursor))) {
+            return true;
+        }
+    }
+    return false;
+}
+
+s7_pointer g_net_apply_travel(s7_scheme* sc, s7_pointer args) {
+    ArgReader in(sc, "net-apply-travel!", args);
+    const std::string id = in.string("player id");
+    const s7_pointer record = in.list("travel record");
+    const s7_pointer only = in.more() ? in.list("field list") : nullptr;
+    if (!in.ok()) {
+        return in.error();
+    }
+    NetTarget target;
+    if (g_netWorld == nullptr || netClientWorld() || !resolveNetTarget(*g_netWorld, id, target) ||
+        target.kind != NetScopeKind::Player) {
+        return s7_f(sc);
+    }
+    int applied = 0;
+    for (s7_pointer cursor = record; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
+        const s7_pointer entry = s7_car(cursor);
+        if (!s7_is_pair(entry) || !s7_is_symbol(s7_car(entry))) {
+            return netError(sc, "net-apply-travel!: a travel record is a list of (field . value)");
+        }
+        const char* name = s7_symbol_name(s7_car(entry));
+        if (only != nullptr && !namedIn(only, name)) {
+            continue;
+        }
+        const NetField* field = nullptr;
+        NetValue* slot = findNetValue(*g_netWorld, target, name, &field);
+        if (slot == nullptr || !field->travel) {
+            return netError(sc, std::string("net-apply-travel!: ") + name + " isn't a travel field");
+        }
+        if (callerRole() == PackageRole::Mod && field->role != PackageRole::Mod) {
+            return netError(sc, "net-apply-travel!: a mod can only set fields mods declare, not " + field->name);
+        }
+        NetValue value;
+        std::string error;
+        if (!netValueFromScheme(sc, s7_cdr(entry), field->type, value, error)) {
+            return netError(sc, "net-apply-travel!: " + field->name + " " + error);
+        }
+        *slot = std::move(value);
+        ++applied;
+    }
+    return s7_make_integer(sc, applied);
+}
+
+s7_pointer netScriptError(s7_scheme* sc, const char* caller, const std::string& message) {
+    return s7_error(sc, s7_make_symbol(sc, caller),
+                    s7_list(sc, 1, s7_make_string(sc, (std::string(caller) + ": " + message).c_str())));
+}
+
+s7_pointer g_net_host(s7_scheme* sc, s7_pointer args) {
+    ArgReader in(sc, "net-host", args);
+    NetControlRequest request;
+    request.kind = NetControlKind::Host;
+    request.address = std::to_string(kDefaultNetPort);
+    if (in.more() && in.peek() != s7_f(sc)) {
+        if (in.nextIsInteger()) {
+            const s7_int port = in.exactInteger("port");
+            if (port < 1 || port > 65535) {
+                return netScriptError(sc, "net-host", "port must be between 1 and 65535");
+            }
+            request.address = std::to_string(port);
+        } else {
+            request.address = in.string("port or host:port");
+        }
+    } else if (in.more()) {
+        in.skip();
+    }
+    if (in.more() && in.peek() != s7_f(sc)) {
+        request.session = in.name("session kind");
+    } else if (in.more()) {
+        in.skip();
+    }
+    if (in.more() && in.peek() != s7_f(sc)) {
+        request.map = in.string("map");
+    } else if (in.more()) {
+        in.skip();
+    }
+    if (!in.ok()) {
+        return in.error();
+    }
+    if (!request.session.empty() && netSchema().findSessionKind(request.session) == nullptr) {
+        return netScriptError(sc, "net-host", "session kind " + request.session + " isn't declared in *net-sessions*");
+    }
+    requestNetControl(std::move(request));
+    return s7_t(sc);
+}
+
+s7_pointer g_net_join(s7_scheme* sc, s7_pointer args) {
+    ArgReader in(sc, "net-join", args);
+    std::string address = in.string("host:port");
+    if (!in.ok()) {
+        return in.error();
+    }
+    if (address.empty()) {
+        return netScriptError(sc, "net-join", "needs an address such as 192.168.1.10:27960");
+    }
+    if (address.find(':') == std::string::npos) {
+        address += ":" + std::to_string(kDefaultNetPort);
+    }
+    NetControlRequest request;
+    request.kind = NetControlKind::Join;
+    request.address = std::move(address);
+    requestNetControl(std::move(request));
+    return s7_t(sc);
+}
+
+s7_pointer g_net_leave(s7_scheme* sc, s7_pointer) {
+    requestNetControl(NetControlRequest{});
+    return s7_t(sc);
+}
+
+s7_pointer g_net_status(s7_scheme* sc, s7_pointer) {
+    if (g_netWorld == nullptr || !g_netWorld->has<NetStatus>()) {
+        return s7_make_symbol(sc, "offline");
+    }
+    return s7_make_symbol(sc, netStatusName(g_netWorld->get<NetStatus>().kind));
+}
+
+s7_pointer g_net_error(s7_scheme* sc, s7_pointer) {
+    if (g_netWorld == nullptr || !g_netWorld->has<NetStatus>() || g_netWorld->get<NetStatus>().error.empty()) {
+        return s7_f(sc);
+    }
+    return s7_make_string(sc, g_netWorld->get<NetStatus>().error.c_str());
+}
+
+s7_pointer g_session_kinds(s7_scheme* sc, s7_pointer) {
+    s7_pointer out = s7_nil(sc);
+    const std::vector<NetSessionKind>& kinds = netSchema().sessionKinds();
+    for (auto kind = kinds.rbegin(); kind != kinds.rend(); ++kind) {
+        s7_pointer maps = s7_nil(sc);
+        for (auto map = kind->maps.rbegin(); map != kind->maps.rend(); ++map) {
+            maps = s7_cons(sc, s7_make_string(sc, map->c_str()), maps);
+        }
+        out = s7_cons(sc,
+                      s7_list(sc, 5, s7_make_symbol(sc, kind->name.c_str()), s7_make_string(sc, kind->title.c_str()),
+                              s7_make_integer(sc, kind->minPlayers), s7_make_integer(sc, kind->maxPlayers), maps),
+                      out);
+    }
+    return out;
+}
+
+s7_pointer g_enter_lag_compensation(s7_scheme* sc, s7_pointer) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_error(sc, s7_make_symbol(sc, "with-lag-compensation"),
+                        s7_list(sc, 1, s7_make_string(sc, "with-lag-compensation: not allowed here")));
+    }
+    beginNetRewind(*g_netWorld, scriptPlayer(*g_netWorld));
+    return s7_t(sc);
+}
+
+s7_pointer g_leave_lag_compensation(s7_scheme* sc, s7_pointer) {
+    endNetRewind(*g_netWorld);
+    return s7_unspecified(sc);
+}
+
+s7_pointer g_net_rewound_tick(s7_scheme* sc, s7_pointer) {
+    if (!g_netWorld->has<NetRewind>() || g_netWorld->get<NetRewind>().rewoundTo < 0.0) {
+        return s7_f(sc);
+    }
+    return s7_make_real(sc, g_netWorld->get<NetRewind>().rewoundTo);
+}
+
+constexpr SchemeBinding kNetBindings[] = {
+    {"net-get", g_net_get, 2, 0, false, "(net-get id field)", ScriptCap::ReadWorld},
+    {"net-rewound-tick", g_net_rewound_tick, 0, 0, false, "(net-rewound-tick)", ScriptCap::ReadWorld},
+    {"net-set!", g_net_set, 3, 0, false, "(net-set! id field value)", ScriptCap::WorldMutate},
+    {"net-reset!", g_net_reset, 0, 0, false, "(net-reset!)", ScriptCap::WorldMutate},
+    {"net-save-state", g_net_save_state, 0, 0, false, "(net-save-state)", ScriptCap::ReadWorld},
+    {"net-restore-state!", g_net_restore_state, 1, 0, false, "(net-restore-state! state)", ScriptCap::WorldMutate},
+    {"net-schema-hash", g_net_schema_hash, 0, 0, false, "(net-schema-hash)", ScriptCap::ReadWorld},
+    {"net-event!", g_net_event, 2, 0, true, "(net-event! event where arg ...)", ScriptCap::ReadWorld},
+    {"net-command-tick", g_net_command_tick, 0, 0, false, "(net-command-tick)", ScriptCap::ReadWorld},
+    {"net-acked-command", g_net_acked_command, 0, 0, false, "(net-acked-command)", ScriptCap::ReadWorld},
+    {"net-player-name", g_net_player_name, 0, 0, false, "(net-player-name)", ScriptCap::ReadWorld},
+    {"player-display-name", g_player_display_name, 0, 1, false, "(player-display-name [player-id])", ScriptCap::ReadWorld},
+    {"session-kind", g_session_kind, 0, 0, false, "(session-kind)", ScriptCap::ReadWorld},
+    {"session-max-players", g_session_max_players, 0, 0, false, "(session-max-players)", ScriptCap::ReadWorld},
+    {"session-set-max-players!", g_session_set_max_players, 1, 0, false, "(session-set-max-players! n)", ScriptCap::MapControl},
+    {"session-joinable", g_session_joinable, 0, 0, false, "(session-joinable)", ScriptCap::ReadWorld},
+    {"session-set-joinable!", g_session_set_joinable, 1, 0, false, "(session-set-joinable! joinable)", ScriptCap::MapControl},
+    {"session-players", g_session_players, 0, 0, false, "(session-players)", ScriptCap::ReadWorld},
+    {"net-rejoin-record", g_net_rejoin_record, 1, 0, false, "(net-rejoin-record player-id)", ScriptCap::ReadWorld},
+    {"net-apply-travel!", g_net_apply_travel, 2, 1, false, "(net-apply-travel! player-id record [fields])", ScriptCap::WorldMutate},
+    {"session-kinds", g_session_kinds, 0, 0, false, "(session-kinds)", ScriptCap::ReadWorld},
+    {"net-host", g_net_host, 0, 3, false, "(net-host [port] [session-kind] [map])", ScriptCap::MapControl},
+    {"net-join", g_net_join, 1, 0, false, "(net-join address)", ScriptCap::MapControl},
+    {"net-leave", g_net_leave, 0, 0, false, "(net-leave)", ScriptCap::MapControl},
+    {"net-status", g_net_status, 0, 0, false, "(net-status)", ScriptCap::ReadWorld},
+    {"net-error", g_net_error, 0, 0, false, "(net-error)", ScriptCap::ReadWorld},
+};
+
+} // namespace
+
+void deliverNetEvent(s7_scheme* scheme, const NetEventMessage& event) {
+    if (scheme == nullptr || event.eventId >= netSchema().events().size()) {
+        return;
+    }
+    const NetEventDef& def = netSchema().events()[event.eventId];
+    const std::string procName = "on-event-" + def.name;
+    const s7_pointer proc = s7_name_to_value(scheme, procName.c_str());
+    if (!s7_is_procedure(proc)) {
+        return;
+    }
+    s7_pointer list = s7_nil(scheme);
+    unsigned int protectedAt = 0;
+    {
+        NetGcPause pause(scheme);
+        for (auto it = event.args.rbegin(); it != event.args.rend(); ++it) {
+            list = s7_cons(scheme, netValueToScheme(scheme, *it), list);
+        }
+        list = s7_cons(scheme, whereValue(scheme, event), list);
+        protectedAt = s7_gc_protect(scheme, list);
+    }
+    ScriptScopeGuard scope(ScriptScope::Present);
+    ScriptCallGuard guard(scheme, roleForProc(procName));
+    s7_call(scheme, proc, list);
+    s7_gc_unprotect_at(scheme, protectedAt);
+}
+
+void bindNetApi(flecs::world& world, s7_scheme* scheme) {
+    g_netWorld = &world;
+    if (scheme == nullptr) {
+        return;
+    }
+    registerBindings(scheme, kNetBindings);
+    const s7_pointer env = s7_inlet(
+        scheme,
+        s7_list(
+            scheme,
+            6,
+            s7_make_symbol(scheme, "enter"),
+            s7_make_function(scheme, "with-lag-compensation", g_enter_lag_compensation, 0, 0, false, ""),
+            s7_make_symbol(scheme, "leave"),
+            s7_make_function(scheme, "with-lag-compensation", g_leave_lag_compensation, 0, 0, false, ""),
+            s7_make_symbol(scheme, "wind"),
+            s7_name_to_value(scheme, "dynamic-wind")));
+    s7_define_variable(
+        scheme,
+        "with-lag-compensation",
+        s7_eval_c_string_with_environment(scheme, "(lambda (thunk) (wind enter thunk leave))", env));
+}
+
+}

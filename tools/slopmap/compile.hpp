@@ -45,6 +45,18 @@ enum class GpuSafetyMode {
     Safe,
 };
 
+/** Mirrors slopvis's --mode: Full walks the clipped portal chains, Fast stops
+ *  after the plane-test base pass (looser result, seconds instead of minutes
+ *  on large open maps). */
+enum class VisMode {
+    Full,
+    Fast,
+};
+
+struct VisCompileOptions {
+    VisMode mode = VisMode::Full;
+};
+
 struct RadCompileOptions {
     float luxelsPerMeter = 16.0f;
     int bounces = 2;
@@ -86,6 +98,7 @@ struct CompileMountArgs {
 class CompileController {
 public:
     RadCompileOptions radOptions{};
+    VisCompileOptions visOptions{};
     bool showOptionsModal = false;
     bool showOutputWindow = false;
 

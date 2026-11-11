@@ -1,12 +1,22 @@
 #version 330
 
+/// Draws a two-weight world grid that fades with distance from the camera.
+///
+/// @used-by slopmap's preview grid.
+
 in vec3 fragWorldPos;
 
+/// Eye position, center of the fade.
 uniform vec3 cameraPos;
+/// Spacing of minor lines in world units; major lines every tenth cell, a third level every hundredth.
 uniform float gridSize;
+/// Grid plane: 1 for xy, 2 for yz, anything else xz.
 uniform int planeAxis;
+/// Distance at which lines fade out.
 uniform float fadeRadius;
+/// Color and alpha of minor lines.
 uniform vec4 minorColor;
+/// Color and alpha of major lines; the hundredth-cell level blends it toward gray.
 uniform vec4 majorColor;
 
 out vec4 finalColor;

@@ -3,11 +3,15 @@
  * @{
  *
  * @section sys_PollInput PollInput
- * Phase: `PreUpdate`. Samples device bindings into @ref slopengine::InputState.
+ * Phase: `PreUpdate`. Samples device bindings into @ref slopengine::InputState and holds each press until the next simulation tick.
+ * Defined in `input/input_module.cpp`.
+ *
+ * @section sys_BuildLocalPlayerCommand BuildLocalPlayerCommand
+ * Phase: `PreUpdate`, once per simulation tick. Builds the @ref slopengine::PlayerCommand of the @ref slopengine::LocalPlayer from the device and the presses held since the last tick.
  * Defined in `input/input_module.cpp`.
  *
  * @section sys_DispatchPackageActions DispatchPackageActions
- * Phase: `OnUpdate`. Runs package Scheme handlers for pressed actions.
+ * Phase: `OnUpdate`, once per simulation tick. Runs package Scheme handlers for pressed actions.
  * Defined in `input/input_module.cpp`.
  *
  * @}
@@ -29,31 +33,31 @@
  * @{
  *
  * @section sys_CharacterMotorInput CharacterMotorInput
- * Phase: `PreUpdate`. Copies wish velocity from input onto @ref slopengine::CharacterMotor.
+ * Phase: `PreUpdate`, once per simulation tick. Copies wish velocity from input onto @ref slopengine::CharacterMotor.
  * Defined in `physics/physics_module.cpp`.
  *
  * @section sys_PhysicsStep PhysicsStep
- * Phase: `OnUpdate`. Steps Jolt and syncs character pose back to the camera/entity.
+ * Phase: `OnUpdate`, once per simulation tick. Steps Jolt and syncs character pose back to the camera/entity.
  * Defined in `physics/physics_module.cpp`.
  *
  * @section sys_TriggerOverlap TriggerOverlap
- * Phase: `OnUpdate`. Detects @ref slopengine::TriggerVolume enter/exit and calls Scheme.
+ * Phase: `OnUpdate`, once per simulation tick. Detects @ref slopengine::TriggerVolume enter/exit and calls Scheme.
  * Defined in `physics/physics_module.cpp`.
  *
  * @section sys_UpdateFaceTouch UpdateFaceTouch
- * Phase: `OnUpdate`. Detects @ref slopengine::FaceTouch enter/exit on CSG faces and calls Scheme.
+ * Phase: `OnUpdate`, once per simulation tick. Detects @ref slopengine::FaceTouch enter/exit on CSG faces and calls Scheme.
  * Defined in `physics/physics_module.cpp`.
  *
  * @section sys_MotoredBodyIntegrate MotoredBodyIntegrate
- * Phase: `OnUpdate`. Integrates @ref slopengine::MotoredBody projectiles against static hulls and actors, firing impacts.
+ * Phase: `OnUpdate`, once per simulation tick. Integrates @ref slopengine::MotoredBody projectiles against static hulls and actors, firing impacts.
  * Defined in `physics/motored_body.cpp`.
  *
  * @section sys_RigidMoverAdvance RigidMoverAdvance
- * Phase: `PreUpdate`. Advances @ref slopengine::RigidMover progress toward its target and syncs the kinematic body.
+ * Phase: `PreUpdate`, once per simulation tick. Advances @ref slopengine::RigidMover progress toward its target and syncs the kinematic body.
  * Defined in `physics/rigid_mover.cpp`.
  *
  * @section sys_RigidMoverCharacterResolve RigidMoverCharacterResolve
- * Phase: `OnUpdate`. Shoves/crushes characters caught in a moving @ref slopengine::RigidMover and calls `on-crush`.
+ * Phase: `OnUpdate`, once per simulation tick. Shoves/crushes characters caught in a moving @ref slopengine::RigidMover and calls `on-crush`.
  * Defined in `physics/rigid_mover.cpp`.
  *
  * @section sys_RigidMoverRadTint RigidMoverRadTint
@@ -69,7 +73,7 @@
  * Defined in `physics/rigid_mover.cpp`.
  *
  * @section sys_SightScan SightScan
- * Phase: `OnUpdate`. Round-robins @ref slopengine::ActorSight linescans and calls `on-sight` on newly visible targets.
+ * Phase: `OnUpdate`, once per simulation tick. Round-robins @ref slopengine::ActorSight linescans and calls `on-sight` on newly visible targets.
  * Defined in `physics/sight_module.cpp`.
  *
  * @}
@@ -110,11 +114,11 @@
  * @{
  *
  * @section sys_UpdateInteractionTarget UpdateInteractionTarget
- * Phase: `PreUpdate`. Ray/aim pick of the best @ref slopengine::Interactable into @ref slopengine::InteractionTarget.
+ * Phase: `PreUpdate`, once per simulation tick. Ray/aim pick of the best @ref slopengine::Interactable into @ref slopengine::InteractionTarget.
  * Defined in `interact/interact_module.cpp`.
  *
  * @section sys_HandleInteractAction HandleInteractAction
- * Phase: `PreUpdate`. On Interact, invokes the target's Scheme `on-use` handler.
+ * Phase: `PreUpdate`, once per simulation tick. On Interact, invokes the target's Scheme `on-use` handler.
  * Defined in `interact/interact_module.cpp`.
  *
  * @}
@@ -125,11 +129,11 @@
  * @{
  *
  * @section sys_FlushThingDespawns FlushThingDespawns
- * Phase: `OnUpdate`. Destroys entities queued for despawn by the thing runtime API.
+ * Phase: `OnUpdate`, once per simulation tick. Destroys entities queued for despawn by the thing runtime API.
  * Defined in `script/thing_script.cpp`.
  *
  * @section sys_TimedDespawnAdvance TimedDespawnAdvance
- * Phase: `OnUpdate`. Counts down `TimedDespawn` and queues the entity for despawn at zero.
+ * Phase: `OnUpdate`, once per simulation tick. Counts down `TimedDespawn` and queues the entity for despawn at zero.
  * Defined in `script/thing_script.cpp`.
  *
  * @}
@@ -151,7 +155,7 @@
  * @{
  *
  * @section sys_NavUpdate NavUpdate
- * Phase: `OnUpdate`. Replans @ref slopengine::NavigationAgent paths toward their goal and steers the character motor.
+ * Phase: `OnUpdate`, once per simulation tick. Replans @ref slopengine::NavigationAgent paths toward their goal and steers the character motor.
  * Defined in `navigation/nav_module.cpp`.
  *
  * @}
@@ -166,15 +170,15 @@
  * Defined in `render/animation_systems.cpp`.
  *
  * @section sys_CallSchemeTick CallSchemeTick
- * Phase: `OnUpdate`. Invokes the package Scheme per-frame tick hook.
+ * Phase: `OnUpdate`, once per simulation tick. Invokes the package Scheme `tick` hook with the fixed tick length.
  * Defined in `render/animation_systems.cpp`.
  *
- * @section sys_AdvanceAnimationPlayer AdvanceAnimationPlayer
- * Phase: `OnUpdate`. Advances @ref slopengine::AnimationPlayer and skins @ref slopengine::Model3D.
+ * @section sys_AdvanceAnimationClock AdvanceAnimationClock
+ * Phase: `OnUpdate`, once per simulation tick. Advances @ref slopengine::AnimationPlayer time and fires clip frame events.
  * Defined in `render/animation_systems.cpp`.
  *
- * @section sys_AnimationClipFlipTest AnimationClipFlipTest
- * Phase: `PostUpdate`. Demo helper that flips clips via @ref slopengine::AnimationClipFlipTest.
+ * @section sys_SampleAnimationPose SampleAnimationPose
+ * Phase: `OnUpdate`. Skins @ref slopengine::Model3D at a clip time blended between the last two ticks.
  * Defined in `render/animation_systems.cpp`.
  *
  * @section sys_AdvanceMaterialAnim AdvanceMaterialAnim
@@ -182,7 +186,7 @@
  * Defined in `render/material_anim.cpp`.
  *
  * @section sys_AdvanceSpriteAnimator AdvanceSpriteAnimator
- * Phase: `OnUpdate`. Advances @ref slopengine::SpriteAnimator into @ref slopengine::SpriteInstance.
+ * Phase: `OnUpdate`, once per simulation tick. Advances @ref slopengine::SpriteAnimator into @ref slopengine::SpriteInstance.
  * Defined in `render/sprite_animator_system.cpp`.
  *
  * @section sys_SyncSpriteOverlayViewOffset SyncSpriteOverlayViewOffset
@@ -194,12 +198,20 @@
  * Defined in `render/sprite_animator_system.cpp`.
  *
  * @section sys_DespawnFinishedSpriteOverlays DespawnFinishedSpriteOverlays
- * Phase: `OnUpdate`. Destroys non-looping @ref slopengine::SpriteOverlay entities once their clip finishes.
+ * Phase: `OnUpdate`, once per simulation tick. Destroys non-looping @ref slopengine::SpriteOverlay entities once their clip finishes.
  * Defined in `render/sprite_animator_system.cpp`.
  *
  * @section sys_UpdateGlobalTransforms UpdateGlobalTransforms
  * Phase: `OnUpdate`. Recomputes @ref slopengine::GlobalTransformation from the hierarchy.
  * Defined in `render/animation_systems.cpp`.
+ *
+ * @section sys_UpdateGlobalTransformsSim UpdateGlobalTransformsSim
+ * Phase: `OnUpdate`, once per simulation tick. The same pass as @ref sys_UpdateGlobalTransforms, so systems later in the tick see current transforms.
+ * Defined in `render/animation_systems.cpp`.
+ *
+ * @section sys_BoneSpringStep BoneSpringStep
+ * Phase: `OnUpdate`. Samples bone joints of actors with active @ref slopengine::BoneSprings, steps their damped springs off the smoothed joint acceleration and writes the offsets into @ref slopengine::ShaderParams.
+ * Defined in `render/bone_springs.cpp`.
  *
  * @section sys_StartDrawing StartDrawing
  * Phase: `PostUpdate`. Begins the raylib frame (`BeginDrawing`).

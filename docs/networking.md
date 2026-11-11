@@ -1,0 +1,372 @@
+@page networking_design Networking design (draft)
+
+@note This is a design draft. The transport interface with its in-memory test backend, its ENet socket backend and its encrypted layer, declared state and events, and a first pass of playing over the network with several clients, are implemented. For declared state, `*net-state*` and `*net-extension*` load from `data/net.s7`, the engine stores the fields, and `net-get`, `net-set!`, `net-reset!`, `net-save-state` and `net-restore-state!` read and write them (see @ref dataapi and @ref scriptingapi). The `send` option decides which player and session fields reach the client. Session kinds, their player limits, closing a session to new players and rejoining work. Transfers between sessions, the coordinator, listings and the ways in other than `open` are not implemented.
+
+Multiplayer in slopengine is server-authoritative. A server runs the simulation for a session and clients send it their `PlayerCommand` each tick (see @ref ecs_pipeline). Everything else on this page is about the two questions that sit above the wire format. What state does a game have, and who gets to see it. And how players come together, move between sessions and leave, without the engine deciding on one shape such as a server cycling through a map list.
+
+The engine provides the mechanics: typed state storage, replication, events, sessions, transfers, joins and listings. The base package declares its state and its session kinds as data, and its scripts drive the flow. A map rotation is something a game script can do, not something the engine knows about.
+
+# Transport
+
+The engine talks to the network only through `NetTransport` (`src/net/transport.hpp`), which follows the message model of Valve's GameNetworkingSockets so a backend maps onto it one to one. A server calls `listen`, gets an `Incoming` event per connection attempt and calls `accept` or `close`. A client calls `connect`. Both sides then get `Connected`. Messages are whole byte buffers of at most 512 KiB, sent `Reliable`, which arrive once and in order, or `Unreliable`, which can be lost or arrive out of order. `poll` drains every event that has arrived, and `close` sends a reason the peer receives with its `Disconnected` event.
+
+`MemoryNetwork` (`src/net/memory_transport.hpp`) is an in-process backend for tests. Every endpoint it hands out shares one simulated network with a manual clock, `advance`, and a seeded random source, so a test is repeatable. `setConditions` adds latency, jitter and loss. Unreliable messages are dropped at the loss rate and jitter can reorder them. Reliable messages are never dropped, a loss adds a resend delay instead, and they stay in order. `createEnetTransport` (`src/net/enet_transport.hpp`) is the socket backend, built on ENet, which every build includes. Addresses are `host:port` for `connect` and `port` or `host:port` for `listen`. ENet accepts connections on its own, so the backend keeps the accept step on top of it: the server sees `Incoming` and holds the peer, and the client only sees `Connected` once `accept` has sent it a reliable confirmation. An ENet disconnect carries no text, so `close` sends its reason as a last reliable message, cut to 256 bytes. A connection attempt that gets no answer fails with the reason `no response` after `EnetTransportOptions::connectTimeoutMs`. ENet sends plain UDP over IPv4, without encryption, which suits LAN play, self-hosted servers and development. The backend refuses packets over the 512 KiB limit before ENet buffers them, caps what one peer can have waiting at four such packets, and lets one address hold at most `EnetTransportOptions::maxPeersPerAddress` connections, 4 by default. Several transports can share one process, which is how its test runs a client and a server together.
+
+# Encryption
+
+`SecureTransport` (`src/net/secure_transport.hpp`) wraps any transport, such as `createSecureTransport(createEnetTransport())`, and offers the same interface with every message encrypted and authenticated. It uses Monocypher, and the handshake follows the shape of the Noise protocol patterns where the client knows or learns the server's key.
+
+A server has a long-term X25519 key pair. `SecureTransportOptions::staticSecret` sets it, otherwise `listen` generates one. A dedicated server that wants a stable identity across restarts keeps its secret and passes it in. Its public key is `publicKey()`, and `secureKeyFingerprint` turns a key into a short hex string for people to compare.
+
+The handshake runs inside the wrapped transport's connection, before `Connected` is reported.
+
+1. The client sends the handshake version and a fresh ephemeral public key.
+2. The server sends its long-term public key, a fresh ephemeral public key, and a MAC made with the new keys.
+3. The client checks the server's key against `SecureTransportOptions::pinnedServerKey` when one is set, checks the MAC, and answers with a MAC of its own.
+
+Both sides derive the session keys from two X25519 exchanges, ephemeral with ephemeral and the client's ephemeral with the server's long-term key, mixed by BLAKE2b with a hash of the handshake version and the keys exchanged, so both sides only agree on keys when they speak the same version and a changed version byte fails the handshake. Only the holder of the server's long-term secret can finish the handshake, and the ephemeral exchange means a stolen long-term key doesn't reveal earlier sessions. A client without a pinned key learns the server's key from `peerKey`. `NetSession` remembers it in `known_servers` in the profile directory, one `address key` line per server, and refuses a server whose key differs from the one remembered for its address, the way SSH remembers hosts. Removing the line accepts the new key on the next visit. `--server-key` skips the file.
+
+Each direction has its own key. Messages are sealed with XChaCha20-Poly1305 and carry a counter that forms the nonce, which adds 26 bytes to each message. A reliable message has to carry exactly the next counter, so a replayed, dropped or altered one closes the connection with `bad message`. An unreliable message passes through a 64-message replay window, the way WireGuard does it, so a late one is accepted once and a copy or a forgery is dropped.
+
+This protects message contents from being read or changed on the way, and stops a server being impersonated once its key is known. It does not identify clients, which is left to whatever accounts or tokens a game adds on top. Once the handshake is done, `close` sends its reason as a last sealed message on the reliable channel, and a plain-text reason from the wrapped transport is ignored and reported as `connection lost`, so nobody on the way can put words in a server's mouth. Reasons sent before the handshake, such as `server full`, still travel in plain text. Every count and length in a message has exactly one encoding, which a later signed ticket can rely on. The protocol is the engine's own composition of standard primitives and has not been independently reviewed.
+
+# Playing over the network
+
+`NetSession` (`src/net/net_session.hpp`) runs a game over the encrypted ENet transport. Start a server and a client with the base package's own map flag.
+
+```
+slopengine --game slopdemo --dedicated --listen 27960 --map demoroom
+slopengine --game slopdemo --connect 127.0.0.1:27960
+```
+
+A game that declares session kinds also gets a Multiplayer menu in the main menu bar. Host Game picks a kind by its title, a map from the kind's `maps` or every map when it lists none, a port and a player limit, then loads the map as a listen server. Join Game takes `host:port`, where the port defaults to 27960, and remembers the last address in the profile's settings. Leave Game, also in the pause menu while online, closes the connection and returns to the title. Profile sets the name other players see and every player field declared with `profile`, saved in the profile's settings. A client sends its profile when it joins and again when it changes. The server gives every player the full list of names, read with `player-display-name`, and writes the profile fields into the player's record, where they replicate by their `send` like any other field and are read with `net-get`. The server checks each value against its declared type and drops a client that sends one outside it. Profile values stay through every reset of the record, such as a map change or `net-reset!`, until the player leaves. Single-player, the local player's record has them too. A failed join shows the reason, such as `no response`. Scripts do the same with `net-host`, `net-join` and `net-leave`, and read the state with `net-status` and `net-error`. Leaving resets every declared field to its default. While a session runs, the pause menu and the main menu don't pause the simulation, since other players are still in it.
+
+The client sends a hello with the protocol, the engine version, every mounted package with its version, and the schema hash of the declared state. The server refuses a client whose hello doesn't match and sends the reason, such as `declared state differs`. A server takes as many players as its session allows, see @ref net-sessions, and answers the next with `server full`. A session a script closed answers new players with `not taking new players`. Only players who finished their hello count. A hello that arrives while the server loads a map waits until the map is ready, so `on-player-join` always runs in a loaded world. Connections still in the handshake or waiting to send their hello are capped separately at `NetSessionConfig::maxPendingClients`, 8 by default, past which the server answers `server busy, try again`, and one that hasn't sent its hello within `helloTimeoutTicks`, five seconds, is dropped with `took too long to join`. Each connection gets a budget of 120 messages a second with a burst of 2400, enough for a client catching up after the server paused to load a map, and one that sends more is dropped with `too many messages`. The ENet backend is sized for the session's ceiling plus the pending connections, and takes 4 connections from one address unless `--net-peers-per-address` says otherwise. A connection that isn't answered within 5 seconds fails with `no response`. Once connected, either side drops the other after 20 seconds without an answer and reports `connection lost`. A process loading a map keeps answering in the background, so only one that stopped responding reaches that limit.
+
+A client doesn't trust what a server sends either. Entity and player names have to be plain, letters, digits, spaces, dashes and underscores and not all digits, so a name can't be a flecs path or an entity id. A name only binds to a top-level replicated entity of the map or a stand-in, never to the local player. Map ids have to be plain relative paths without `.` or `..` segments, and asset paths anywhere in the engine can't climb out of their package with `..`. The client also refuses more than 4096 entities, more stand-ins than the 256 player ceiling, and a player state with sizes, speeds or positions far outside anything a game uses. Any of these makes the client leave with a reason such as `server sent a bad entity name`.
+
+A client also sends an identity: a hash of a secret kept in `client.key` in its profile directory and the server's key, so every server sees a different identity for the same client and one server can't pass it on to another. When a player leaves, the server keeps their `travel` fields under that identity for five minutes, or what `--net-rejoin-hold` sets in seconds, 0 for never. A client that comes back within that time gets its old player id when it is free and `on-player-join` is called with `rejoin` instead of `open`. Nothing comes back by itself. The script reads what the player left with from `net-rejoin-record` and applies what it wants with `net-apply-travel!`. A closed session still takes back a player within the hold. A second connection with the same identity replaces the first, which is dropped with `joined again`, so a client that crashed gets back in before the server notices the old connection is gone.
+
+Every client drives a player body of its own: an entity with a physics character, a `PlayerCommand`, view angles, an eye and a record of declared player fields. On a dedicated server the first client takes the map's `"Player"`, so a game written for one player keeps working for it, and later clients get bodies named `player-2`, `player-3` and so on, spawned around the map's player start with a copy of the map player's motor, so they share its size, eye height and gravity. `on-player-join` is the place to size a body differently, with `player-set-collider` and `player-set-eye-height` and the body's id. With `--listen` and no `--dedicated` the host keeps `"Player"` and every client gets a body of its own. A body and its record go away when its client leaves, and bodies come back after every map change. When the client driving a dedicated server's `"Player"` leaves, that body goes back to the player start with the start's motor and no command, and its declared fields go back to their defaults, so the next client to take it starts fresh. Script state of its own is the game's to clear in `on-player-leave`. `(players)` lists every body, and `player-pose`, `player-velocity`, `player-grounded?`, `player-eye`, `player-look-dir`, `player-collider`, `player-set-collider` and `player-set-eye-height` take a body's id. Game logic such as weapons and damage still has to loop over `(players)` to treat every body as a player.
+
+Hook|Runs on|When
+-|-|-
+`(on-player-join id how)`|server|A client is ready and has its body. `how` is `open`, or `rejoin` for a player back within the rejoin hold
+`(on-player-leave id reason)`|server|A client left or was dropped. `reason` is the text it was dropped with, such as `connection lost`
+`(on-player-profile id)`|server|A player changed a profile field during the session
+`(on-player-appear id)`|client|Another player's body is in view and needs a stand-in, which the hook spawns under `id`, such as with `actor-spawn`
+`(on-player-vanish id)`|client|That body left. The hook removes the stand-in
+
+Mods add to these with `hook-add`, as they do for the other engine hooks.
+
+A client's own body is never introduced to it. Another player's body arrives named `player:` and the server's name, so the stand-in can't collide with the client's own `"Player"`. Each snapshot carries that player's fields whose `send` is `all` along with the body, and `(net-get "player:NAME" field)` reads them on the client. A stand-in is the client's own presentation, so `present` animates it and hangs things on it with the `avatar-*` functions, which act on nothing else.
+
+The server gives every replicated entity a number: actors, things, movers, motored bodies and player bodies that sit at the root of the hierarchy and have a name. Each client has its own set of entities it knows about, worked out every tick. An entity is relevant to a client when the map's PVS lets the client's eye see the entity's leaf, when it is within 16 metres of the eye, or when it is a mover, since the client collides with movers while it predicts. A map without PVS data makes everything relevant. A body without an eye, such as a dead one, keeps measuring from the last eye it had, and a client whose body never had one only learns of movers, so dying doesn't reveal the map. An entity stays relevant for a second after it stops being, so a client walking along a PVS boundary doesn't make it come and go. A client knows at most 512 entities, the nearest first. The server introduces each number to a client with the entity's name when the entity becomes relevant and forgets it when it stops, and the client binds the number to its own entity of that name. The client disables a forgotten entity and its attachments, so it isn't drawn frozen where it was last seen, and enables it again when it comes back. A replicated entity the server hasn't introduced is disabled from the client's first snapshot on. Names match because both sides load the same map and run the same `on-map-ready`. A map thing the server brings back with `thing-respawn` keeps its name, so a client shows its own copy again when the server introduces it, and a client that joins while it is gone never sees it. An entity a script creates while the game runs, with `actor-spawn` or `motored-spawn`, has no match on the client, so its introduction carries how to build it: whether it is an actor or a motored body, its sprite or geo, its tags and where it is. The client builds a stand-in of the same name that only shows the entity, without physics or behaviour, moves it from the snapshots and removes it when the server forgets the entity. Scripts on the client can then refer to it by name, for example to hang a trail on a rocket from an event. Asset paths in an introduction are checked like map ids, and a server that sends one that isn't a plain relative path is refused.
+
+Severed parts and ragdolls are cosmetic. When the server cuts a bone off an actor or turns an actor into a ragdoll, each client that knows the actor gets the same cut or ragdoll with the same push and runs it on its own copy, with physics the client steps itself, so the part flies and the corpse falls without the server sending their bones. Parts are named `severed-` followed by the actor's id and the bone, the same on every side, so events can point at them. Hiding a bone with `actor-hide-bone!` and hanging or removing geo with `actor-attach-geo` and `actor-detach` reach clients the same way, so an actor holds the same weapon and hides the same parts everywhere. Geo hung on a player's stand-in is left to the client's own scripts. An actor's introduction lists the bones already cut off or hidden and the geo it carries, and a ragdoll's introduction carries the pose its bones are in, so a client that arrives later sees the stumps, the weapons and the corpse lying the way it lies on the server, without simulating it again. The parts and the exact fall can differ between clients, and nothing the game decides depends on them.
+
+The server tells the client which map to load and sends it again after every map change, followed by every session field whose `send` is `all`. After that it sends a session field again, reliably and to every client, on the tick it changes. Every second tick it sends a snapshot, staggered across clients, with the player's eye position and the declared player fields whose `send` is `all` or `owner`, followed by the entities that changed. A snapshot is kept to `NetSessionConfig::snapshotBudgetBytes`, 1200 bytes by default, so it fits in one packet and losing a packet loses one snapshot rather than a burst of them. `snapshotIntervalTicks` sets how often snapshots go out.
+
+An entity goes into a snapshot only when it differs from what the client last confirmed. The client acknowledges the newest snapshot it received in each command message, once its map is loaded and every entity in that snapshot was introduced. An entity standing still therefore costs nothing after the client has it, and its last position is sent again until the client confirms it, so a lost packet can't leave it in the wrong place. A playing animation counts as unchanged while its time keeps advancing at its speed, because the client advances it the same way. Entities that changed are ordered by a priority that grows every snapshot they miss, faster for nearby entities and player bodies, and fill the budget in that order, so a crowd updates the nearest entities most often and the far ones still in turn. Positions travel to a 512th of a metre, rotations in four bytes, and clip names once per client as a number.
+
+The client runs no simulation. It keeps each entity's recent snapshots and draws them `interpolationDelayTicks` behind its estimate of the server's tick, 6 ticks or 100 milliseconds by default, blending between the two snapshots on either side. Snapshots that arrive unevenly or go missing then still give smooth motion, and an entity that moves more than four metres between two snapshots jumps instead of sliding. When an entity starts moving after standing still, its snapshot says for how long it stood, so the client holds it in place until then instead of sliding it from the last snapshot it had. A delay of 0 draws the newest snapshot as it arrives. The client builds a `PlayerCommand` sixty times a second from local input and sends it with the three before it, so a lost packet doesn't lose a press. The server applies one command per tick to the client's body, in order, and turns it to the client's view angles. When more than four commands wait, or when at least two have been waiting for a whole second, the server catches up by running the extra commands' movement straight away and keeping their presses, so a client that got ahead doesn't keep that lag and its prediction still matches. A tick with no command moves nothing. Catching up never runs more commands than the ticks that have passed, plus half a second of slack, so a client that sends commands faster than real time can't move or fire faster. Commands that wait through a map load are dropped, and a command with a value that isn't a finite number drops the client. `player-command-time` tells a script how many commands a tick applied for a player, as seconds. While the game turns a player's look off, the server keeps the body's own view angles instead of the client's.
+
+The `present` hook runs every frame on every process that draws, a client included, in the `present` scope. That scope can read the world, query input and drive the first-person view, but can't change the world. So a game splits its first-person code in two. `tick` runs the weapon and health logic on the server and writes what the view needs into `owner` fields, such as how far the weapon is lowered, or raises `owner` events for one-off kicks and hurt flashes. `present` and the event handlers read those and move the view model. On a client, first-person animations advance every frame on their own clock, and `player-velocity` comes from the snapshots, so view bob works without physics.
+
+The client predicts its own movement. Each command it sends also moves its own character one tick against its copy of the map. Each snapshot carries the client's body as the server has it after the last command it applied: feet, velocity, move speed, gravity, eye height and collider. The client puts its character there and runs the commands the server hasn't applied yet again, so the view only moves when the server disagrees. When it does, the character goes to the corrected place at once but the view keeps the difference as an offset and closes it by 15 percent a tick, so a correction plays out over about a fifth of a second instead of in one frame. A correction of more than four metres, such as a respawn, moves the view at once. Movement the game declares as motor rules, such as a sprint, a jump or a crouch, runs in the same step on both sides and is predicted too, see @ref motor-rules. Movement a script starts directly, such as `player-jump!` or `player-set-collider`, still reaches the client a round trip later. A player's own one-off feedback, such as the kick and sound of a shot, can be predicted too, see @ref net-predicted-events. Hits against what a client sees are compensated on the server, see @ref net-lag-compensation.
+
+A listen-server host sees its clients through stand-ins too. A dedicated server spawns none. For every client body, the host calls `on-player-appear` with the stand-in's name, `player:` and the body's name, the same way a client does, and calls `on-player-vanish` when the client leaves. The engine then takes the physics character and motor off the stand-in and moves it to the body's place every tick, except while `avatar-ragdoll!` has it on the floor. It also copies the body's declared fields into the stand-in's record, so `(net-get "player:NAME" field)` works on the host as on a client. A host's stand-in is presentation only. `actors-in-radius`, `actors-with-tag`, `hitscan-actors` and sound propagation skip it, so the game's own logic keeps treating the body as the player. `(net-player-name)` gives the name the server uses for this process's player, so a handler can tell its own player's events from another's.
+
+## Testing with bots
+
+`--bot NAME` makes a dedicated client play by itself, running the bot script `scripts/bots/NAME.s7` from the mounted packages or a `.s7` file. A bot reads what its client knows and writes the input a player would, so it plays by the same rules, and it can run on any machine that can join. The engine ships `still` and `walk`, and slopdemo ships `fight`. See @ref bots for writing one.
+
+A host can run bots itself. The Host Game menu takes a number of bots and, when the packages ship more than one bot script, which one they run, the base game's first by default. While hosting, Multiplayer has Add Bot, Remove Bot and Remove All Bots. A dedicated server takes `--bots N`, with `--bot NAME` for the script. Each bot is a dedicated client process on the same machine that joins over the loopback address, so it plays by the same rules as any other client, and it costs about as much memory as a client of that map. Bot `N` uses the profile named after the host's with `-bot-N` added, so it keeps the same identity and comes back as the same player, plays as `Bot N` and writes its log to `bot.log` in that profile. The bots stop when the host leaves or quits, and a bot whose host stops answering quits on its own once the connection is lost. The host starts them a few tenths of a second apart, so they don't fill the queue of connections still joining, and raises the number of connections it takes from one address by one per bot, since they all join from the loopback address. Bots count against the player limit like anyone else. Hosted bots are not available on Windows yet.
+
+`--net-lag`, `--net-jitter` and `--net-loss` make the process treat its own outgoing traffic like a bad link. Each message waits the lag plus or minus the jitter, reliable messages keep their order, and the given fraction of unreliable messages is dropped. Give the flags to the server and to each client to affect both directions. ENet's own ping doesn't see the added lag, since it is measured underneath.
+
+`--net-stats seconds` logs a line per interval. The server first logs how long a tick took on average and at worst, how much of that was the net layer, and the longest gap between two ticks, not counting a map load. Its next lines, one per client, give snapshots and kilobytes per second, how many entities a snapshot carried and how many changed ones waited for a later one, and how many ticks old a snapshot was when the client acknowledged it, which is roughly the round trip, and how far back that client's aim was on average, see @ref net-lag-compensation. The client's line gives what it received, snapshots it missed, how many introduced entities it has a match for, frames where the jitter buffer ran dry, how often and by how much a snapshot disagreed with the predicted view, how many events arrived a second, how many of its predicted events the server confirmed or didn't and how many it didn't predict, and how many of its commands the server hadn't applied yet when a snapshot came back, which is the input delay in ticks.
+
+`tools/netsoak/net_soak.py` runs a dedicated server and a number of bots, waits, stops them and summarizes the statistics. Each process runs under an address space limit of 8000 megabytes, and the bots use the profiles `soak-bot-1` and up.
+
+```
+tools/netsoak/net_soak.py --map readit --bots 3 --seconds 30 --lag 40 --jitter 10 --loss 0.02
+```
+
+It exits with an error when a process crashes or logs an error, when a bot never receives a snapshot, or when a player leaves for a reason other than quitting. `--behavior` takes bot names or files as a comma list that cycles over the bots, and `--out` keeps the logs in a chosen directory instead of a new temporary one.
+
+# Principles
+
+State is declared, not discovered. The engine never inspects Scheme values to work out what to send. A base package lists every replicated field with a type and a size, so the server knows the layout of every message before the first client connects, and a client with the same packages builds the same layout.
+
+The engine stores declared state. Fields live in components on entities and on the session, not in Scheme globals. Scripts read and write them through engine functions. That makes the state per player by construction, lets the engine track what changed, and lets the same schema back save games.
+
+Only the server writes. In client mode the setters refuse. Authority lives in the engine functions, not in each game's discipline.
+
+Mods extend within a budget the base package sets. A mod can declare extra fields and events in its own namespace. It never gets a socket, a connection or a session function. Declaring a field is data, and writing one is ordinary `world-mutate`.
+
+Topology belongs to the game. Session kinds, join rules, roles and what travels with a player are declared per game, and the scripts decide when sessions are created, when players move and when a map changes.
+
+# Files
+
+Each package may ship `data/net.s7`. The engine loads the base package's file at boot, then each mod's in mount order, the same order as `data/actions.s7` and `data/things.s7`. The base file may define four symbols.
+
+Symbol|Defines
+-|-
+`*net-state*`|Replicated fields per scope
+`*net-events*`|One-shot events with typed arguments
+`*net-extension*`|How many fields and events mods may add, per scope
+`*net-sessions*`|Session kinds with their join rules, role names and listing fields
+
+A mod's file may define `*net-state*` and `*net-events*` only. Its names are prefixed with the mod's package id, so a field `stamina` from package `staminamod` is `staminamod/stamina` everywhere.
+
+# State
+
+`*net-state*` is an alist from scope to field list. A scope says where the fields live.
+
+Scope|Lives on
+-|-
+`player`|Each player entity
+`session`|The session as a whole, such as round state, score or progress through a mission
+`(thing tag)`|Each thing whose def carries `tag`, such as `(thing monster)`
+
+Each field has a name, a type and options.
+
+<pre><code class="language-scheme">(health (type int 0 200) (default 100) (send all) (travel \#t))
+</code></pre>
+
+## Types
+
+Type|Meaning
+-|-
+`bool`|True or false
+`(int lo hi)`|Integer in a range, packed into as few bits as the range needs
+`(real lo hi step)`|Number quantized to `step`, such as `(real 0 1 1/256)`
+`(symbol a b c ...)`|One of a fixed set of symbols
+`(string n)`|String of at most `n` bytes
+`entity`|Reference to a replicated entity, sent as its network id
+`(list type n)`|Up to `n` values of `type`
+`(table key-type value-type n)`|Up to `n` key and value pairs
+`float`|Any finite number, sent as 32 bits
+
+Nothing else is allowed, in particular no procedures and no arbitrary nested Scheme data. Every field has a maximum encoded size the loader can compute, which is how budgets are checked. Types nest at most 4 deep, `int` bounds stay within 2^61, and `real` needs finite bounds and at most 2^32 steps. Sizes past the 512 KiB message limit count as that limit, so a type with huge counts can't wrap around to look small. Values have to fit their type when a script sets them: a number outside the range, NaN or infinity is an error, an `entity` id is at most 256 bytes, and an event point has to be finite.
+
+## Options
+
+Option|Values|Meaning
+-|-|-
+`default`|a value of the type|Value for a new player, session or thing
+`send`|`all`, `owner`, `none`|Who receives the field. `owner` is only the player the entity belongs to. `none` stays on the server
+`travel`|`\#t`, `\#f`|Whether the field goes with a player who moves to another map or session. See @ref net-travel
+`save`|`\#t`, `\#f`|Whether save games store the field. Defaults to the value of `travel`
+`profile`|a label string|Makes a player field part of the player's profile, shown under that label in Multiplayer > Profile. Only `bool`, `int`, `real`, `symbol` and `string` fields can be profile fields
+
+`send` is also the anti-cheat line. A field a client never receives cannot be read off that client, so where enemies are, what a hidden door's state is or a monster's health stay `none` unless the game wants them shown.
+
+The engine has no notion of teams or parties. If a game later needs to send a field to some players but not others, the plan is plain named groups that server scripts fill, such as `(net-group-add! 'red player-id)`, and a `(send (group red))` audience. The engine would only know which players are in a set. What a group means stays in the game's scripts.
+
+# Events
+
+Events are one-shot messages that don't belong in state, such as a sound, a hit marker or a pickup flash. Scripts on the server raise them, the engine sends them, and clients run a handler for them. They replace scripts calling sound and effect functions directly in the tick, which on a dedicated server reach no one.
+
+<pre><code class="language-scheme">(pickup (args (item (string 24))) (to owner) (reliable \#t))
+</code></pre>
+
+Option|Values|Meaning
+-|-|-
+`args`|name and type pairs|Typed arguments, using the same types as fields
+`to`|`all`, `owner`, `(near metres)`, `pvs`|Who receives it. `near` and `pvs` measure from the event's position, a point or a player's eye
+`reliable`|`\#t`, `\#f`|Whether a lost packet is resent. Cosmetic events usually are not
+`predict`|`\#t`, `\#f`|Whether a client may raise the event itself for its own commands, see @ref net-predicted-events
+
+A script raises an event with `(net-event! name where arg ...)`. `where` is a point `(x y z)`, a player id or `\#f`, and the arguments follow the declared order and types. Every process that receives the event, the raising one included, runs `(on-event-NAME where arg ...)` when the base package or a mod defines it, the way package actions run `on-action-NAME`. So a game moves an effect onto an event by raising the event where the effect used to happen and doing the effect in the handler, and single-player keeps working unchanged. An `owner` event aimed at another player doesn't run on the raising process, so a host never feels a kick meant for a client. On a dedicated server `"Player"` belongs to a client too, so an `owner` event aimed at it only runs there. On a server the event also goes to the client when the audience allows it. `owner` needs `where` to be the client's player, `near` needs the client's player within the radius of `where`, and `pvs` needs the map's PVS to let the client's eye see `where`. A player id as `where` stands for that player's eye, and the player it names always receives the event. A `near` or `pvs` event with `\#f` as `where` has no position and goes to no client. Handlers run in `present` scope on every process, the server's included, so they can play sounds, spawn effects with the `effects` functions and drive the view and stand-ins, but can't change the world, its fields or the map. An event therefore never makes one process's world differ from another's, and a handler that needs to change state is a sign the change belongs in the server's `tick`.
+
+A single-player game raises events the same way, and they are delivered locally in the same tick, so game scripts don't branch on whether they are networked.
+
+# Mod extension
+
+`*net-extension*` sets the budget per scope. A scope that is not listed accepts no mod fields.
+
+<pre><code class="language-scheme">(define *net-extension*
+  '((player (fields 8) (bytes 32))
+    (session (fields 4) (bytes 16))
+    (events (count 4) (bytes 64))))
+</code></pre>
+
+The loader adds every mod's fields up against the budget in mount order and refuses the mod whose fields overflow it, with the reason in the log. At run time a mod's code can read every field but can only `net-set!` fields mods declared and only `net-event!` events mods declared. `net-reset!` and `net-restore-state!` are refused to mods, so only the base package decides when declared state is wiped or loaded. Field and event ids are assigned in a fixed order, sorted by package id and then by name, so a server and a client with the same packages always agree. The schema hash covers mod fields, so a client missing a mod the server runs is turned away at connect with the mod's id and version, not by a snapshot it can't read.
+
+# Sessions {#net-sessions}
+
+A session is one authoritative world: one map at a time, the players in it, and its `session` fields. It has no lifecycle of its own. There is no start, round, lobby or end in the engine. A server runs its world and players come and go, which is what a drop-in server wants. A game with rounds, a lobby or a minimum number of players builds that in its scripts from what the engine gives it: the join and leave hooks, `session-players`, the map hooks and the controls below.
+
+`*net-sessions*` declares the kinds of session a game uses. Only the base package declares session kinds. A server hosts one session of the kind `--session`, the Host Game menu or `net-host` names, or of the first kind declared. Clients learn the kind, the player limit, whether the session takes new players and who is in it, and read them with `session-kind`, `session-max-players`, `session-joinable` and `session-players`.
+
+How many players a session takes comes from three places. The kind sets the most it can ever take, such as 64 for a hub and 4 for a room. An operator can lower it for one server with `--max-players`. A script can move it anywhere between 1 and that ceiling, the kind's maximum or the operator's lower number, with `(session-set-max-players! n)`, for example from `on-map-ready` on a map built for fewer players. Lowering it turns away new players and leaves the ones already in. A game that declares no kinds takes 8 players, and `--max-players` can set that up to 256.
+
+A script closes the session to new players with `(session-set-joinable! \#f)` and opens it again with `\#t`. A round-based game closes it when a round starts and opens it at the next intermission. A server that never calls it stays open. Closing it leaves the players already in, and a player coming back within the rejoin hold still gets in.
+
+Option|Meaning
+-|-
+`title`|Name shown in the Host Game menu. Defaults to the kind's name with a capital letter
+`maps`|Maps the Host Game menu offers for this kind, the first being the default for `net-host`
+`players`|Minimum and maximum members. The engine enforces the maximum. The minimum is the lowest player limit the Host Game menu offers, and a script that wants to wait for players reads it from `session-kinds`
+`join`|How new members get in, see below. Accepted, not acted on yet
+`roles`|Names of the roles a member can be given. Accepted, not acted on yet
+`announce`|`listed` appears in server and lobby lists, `hidden` can be found by matchmaking queries only, `private` by invite only. Accepted, not acted on yet
+`listing`|Fields a listing or a matchmaking query can see, such as the map, the mission or a level range. Accepted, not acted on yet
+
+`join` is a list of ways in, each with a limit. Today every session is `open`, and the other ways need the coordinator.
+
+Way in|Meaning
+-|-
+`(open n)`|Anyone may join, up to `n`
+`(invite n)`|Members may invite, up to `n`
+`(summon n)`|The session owner accepts a request from a player who offered to help, up to `n`
+`(invasion n)`|Matchmaking may place an uninvited player, up to `n`, if the owner allows it
+
+A role is a label. A script would give a member one with `session-set-role!`, usually in `on-player-join` based on how they got in, and listings would show counts per role. What a role allows, such as whether it counts as an enemy, is game code.
+
+The coordinator is design. A coordinator, which would be part of the engine and not of any game, would keep track of sessions, place new ones on server processes and tell clients where to connect, so that moving a player between sessions on different machines is the same operation as moving them between two sessions on one. None of that is built, and a server that never uses it never sees it.
+
+## Predicted events {#net-predicted-events}
+
+An event the server raises in answer to a player's input reaches that player a round trip after the input. A client can play its own copy at once instead. The game declares the event with `(predict \#t)` and defines a `predict` hook, which a client runs once for every command it sends, with `action-down?` and `action-pressed?` reading that command. The hook decides from what the client knows, such as its declared fields and its own timers, whether the command does something, and raises the event with `net-event!`. The handler runs there and then, and nothing is sent.
+
+The server raises the same event in `tick` as before. When it raises a predicted event while a script acts for a player, inside `with-script-player`, the copy that goes to that player's client carries the number of the last command the server applied for it. The client drops it when it raised the same event for a command within 12 ticks of that one, matching each of its own copies once, and runs it otherwise. So the shot the client predicted plays once, and a shot it didn't predict still plays, a round trip late. Arguments aren't compared, so a game that predicts several kinds of feedback uses an event per kind. A copy the client raised that the server never sends just stays played, so predicted events are for feedback that may rarely be wrong, such as a kick, a sound or a tracer, never for damage or ammo. Other clients get the server's event as usual.
+
+`net-command-tick` gives the command the hook runs for and `net-acked-command` the newest command the server's snapshot accounts for. A hook that predicts something a field counts, such as rounds left, takes the field and subtracts what it predicted for later commands. The client's stats line counts predicted events the server confirmed, ones it didn't, and the server's events the client didn't predict.
+
+slopdemo predicts its weapons this way. The `predict` hook runs the trigger from the weapon's rate, the player's `weapon-state` and `loaded-rounds` fields and the rounds it fired since the last acknowledged command, and raises `weapon-fx` for the kick and sound and `tracer` from the view model's muzzle. When the state turns to raising or reloading, it counts the raise or reload time from the acknowledged command, so it fires again on the same command the server does instead of a round trip after, with a reload's rounds taken from the reserve. The server's weapon timers run on `player-command-time`, so a tick that catches up on two commands fires what two commands would. Other players hear and see a shot through a separate `gunfire` event with a `near` audience, aimed at the shooter and carrying the shooter's eye. A process that has a stand-in for the shooter plays the shot's sound, a muzzle flash and a short light at the stand-in's hand, and kicks the stand-in's weapon back with `avatar-nudge!`. One without a stand-in, such as a client the shooter is hidden from, plays only the sound from the shooter's eye. The shooter's own process skips the event by comparing it with `net-player-name` and keeps its predicted feedback. A player who dies raises a reliable `downed` event to everyone with the direction and strength of the hit that killed them. Each process with a stand-in for that player drops it as a ragdoll with `avatar-ragdoll!`, and falls back to the stand-in's own velocity when the player's `health` reaches 0 before the event arrives, such as for a client that joins while the player is dead. When `health` is above 0 again a second or more later, the respawn, it stands the stand-in back up with `avatar-revive!`.
+
+## Lag compensation {#net-lag-compensation}
+
+A client draws everything but its own body a little in the past: the interpolation delay, 6 ticks or 100 ms, plus the time a snapshot took to arrive. By the time its command reaches the server, the target it aimed at has moved on by about a round trip and that delay. Each command therefore carries the server tick the client had on screen when it built the command, to a 256th of a tick. The server remembers where every top-level named actor and player body was at the end of each tick, including where its physics character stood, for the last 500 ms, or what `--net-max-rewind` sets.
+
+`(with-lag-compensation thunk)` runs `thunk` with every remembered actor and player body other than the script player's moved back to the tick that player's latest command was aimed at, positions blended between the two ticks around it, and puts them back afterwards, even when `thunk` raises an error. A hitscan inside it, with `hitscan-actors`, `player-pose` or anything else that reads positions, hits what the shooter saw. Effects the hit starts there, such as a ragdoll, start from the position the shooter saw too, and something that turns into a ragdoll inside the thunk stays where its ragdoll is. An aim older than the remembered ticks is moved to the oldest one, so a client can't shoot further into the past than the server allows.
+
+Only root positions move back. Animation poses stay as they are now, and corpses, ragdolls, attachments, movers, motored bodies and the map's things don't move. A projectile isn't compensated, since it flies in the present on the server. Outside a server, for the host's own player and for a player whose client hasn't sent an aim yet, the thunk runs with nothing moved. `net-rewound-tick` tells the thunk which tick it is looking at. The server's stats line gives how far back each client's aim was on average.
+
+slopdemo fires its hitscan weapons inside `with-lag-compensation`, so shots against moving players and walkers land where they were on the shooter's screen. Its rockets aren't compensated.
+
+## Hooks
+
+Hook|Called when
+-|-
+`(on-player-join player-id how)`|A member enters. `how` is `open`, or `rejoin` for a player back within the rejoin hold. Later ways in would pass `invite`, `summon` or `invasion`
+`(on-player-leave player-id reason)`|A member leaves or is dropped. The game decides whether their body stays, turns into an AI or vanishes
+`(on-transfer-in player-id record from-kind reason)`|Planned. A member arrives from another session. `record` is their travel record, already checked against the schema. Nothing in it is applied until the script applies it
+
+Late join and sudden departure are normal events, not special cases. A joiner receives the full current state of every replicated entity and every field it is allowed to see before its first tick. Scripts therefore can't assume the party is fixed at map start, and must handle a member vanishing mid-fight. Join and leave hooks are where that is handled.
+
+## Travel {#net-travel}
+
+Moving a player to another map in the same session, or to another session anywhere, carries a travel record: the values of their `travel` fields, encoded with the schema. Only servers build and read travel records. A client never sends one, so a client can't arrive somewhere with an inventory it invented. A map change inside one session keeps every `travel` field as it is, since the same server stays in charge. slopdoom's `carry` map loads, which keep health, ammo and inventory between maps today, are this case.
+
+A rejoin works the same way within one server. The server keeps the record a leaving player had and hands it back through `net-rejoin-record` when they return, and the script applies what it wants with `net-apply-travel!`. slopdemo applies the whole record, without the health of a player who left dead.
+
+A transfer between sessions doesn't apply anything by itself. The engine checks the record against the schema and hands it to `on-transfer-in` in the receiving session, and that script decides what to take. It can apply the whole record with `net-apply-travel!`, apply a list of fields, or read values out of it and do something else. The engine guarantees only that the record is well formed and came from a server. Coming back from a visit is a transfer like any other. A player's home session gets the record the visited session built, and its own script decides which of those values to accept.
+
+## Script functions
+
+Function|Does
+-|-
+`(net-get scope-id field)`|Reads a field. `scope-id` is a player id, a thing id or `'session`
+`(net-set! scope-id field value)`|Writes a field. Server only, checked against the field's type
+`(net-event! name position-or-player args ...)`|Raises an event
+`(session-players)`|Lists the ids of every player in the session
+`(session-set-max-players! n)`|Sets the player limit
+`(session-set-joinable! joinable)`|Opens or closes the session to new players
+`(net-rejoin-record player-id)`|The travel record a returning player left with
+`(net-apply-travel! player-id record [fields])`|Applies a travel record, or only the named fields of it
+`(request-map-load map-id reason)`|On a server, changes the map for every member
+
+The session controls need map control, which engine and base package code hold. Mods can read session fields, the player list and the limits, and register join and leave hooks with `hook-add`.
+
+These are planned with the coordinator, under a new capability, `session-control`, held by engine and base package code only.
+
+Function|Does
+-|-
+`(session-create kind options)`|Asks the coordinator for a new session. Returns its id once it exists
+`(session-transfer player-id session-id reason)`|Moves a member, with their travel record
+`(session-set-role! player-id role)`|Gives a member one of the kind's roles
+`(session-set-listing field value)`|Updates what listings and matchmaking see
+`(session-close reason)`|Ends the session and returns members to wherever the game sends them
+
+# Topologies
+
+The same declarations cover very different games. The engine sees no difference between these, only the scripts do.
+
+A drop-in server is a single kind with `(open 16)` and nothing else. Players come and go, the map runs, and the scripts never touch the session. slopdemo's co-op is this case.
+
+A dedicated server with a map rotation is the same kind. The game script keeps the rotation and calls `request-map-load` at the end of each round, and may close the session while a round runs. slopdemo's deathmatch rotates with `--dm-maps`.
+
+A co-op campaign is a `private` kind with `(invite 3)`. When a mission ends, the host's script calls `request-map-load` for the next map in the mission, or `session-create` plus `session-transfer` for each member to continue on another server, for example one closer to the party.
+
+A hub with rooms is a `listed` hub kind with `(open 64)` and a `listed` room kind. Players walk into a room's portal, and the hub script transfers them into the room's session. The room's `listing` fields are what the hub shows on its board.
+
+A drop-in world in the style of Dark Souls is a `hidden` kind per player, owned by that player, with `(summon 2)` and `(invasion 1)`. Its `listing` holds the area and a level range, which is what matchmaking uses to place summoned helpers and invaders. `on-player-join` gives a summoned helper the `phantom` role and an uninvited one the `invader` role, puts them somewhere sensible and announces them. The game's targeting code treats invaders as enemies. `on-player-leave` handles a visitor dying or the owner beating them. When a phantom returns home, the home world's `on-transfer-in` takes the souls out of the record and ignores the rest, so nothing else that happened in someone else's world changes the helper's own game.
+
+On Steam these map onto lobbies. `listed` and `hidden` are lobby visibility, listing fields are lobby metadata that lobby searches filter on, `invite` is a Steam invite, and the coordinator's placement uses Steam's dedicated server and relay support. Another backend maps the same declarations onto its own services.
+
+# Example
+
+This is what slopdoom's `data/net.s7` could look like. The player fields are the ones `*player-state*` holds today through `state-get` and `state-put!`, and `picked-things` and the mission are session state. Moving slopdoom onto it means replacing those two functions with `net-get` and `net-set!` on the player, and the save form with the schema's `save` fields.
+
+<pre><code class="language-scheme">(define *net-state*
+  '((player
+     (health (type int 0 200) (default 100) (send all) (travel \#t))
+     (armor (type int 0 200) (default 0) (send owner) (travel \#t))
+     (weapon-slot (type int 1 9) (default 2) (send all) (travel \#t))
+     (weapon-owned (type (list (int 1 9) 9)) (default (1 2)) (send owner) (travel \#t))
+     (weapon-ammo (type (table (int 1 9) (int 0 300) 9)) (default ((2 . 50))) (send owner) (travel \#t))
+     (inventory (type (table (string 24) (int 0 99) 32)) (default ()) (send owner) (travel \#t))
+     (dead (type bool) (default \#f) (send all) (travel \#f)))
+    (session
+     (mission (type (string 32)) (default "") (send all) (save \#t))
+     (difficulty (type (symbol easy normal hard nightmare)) (default normal) (send all) (save \#t))
+     (picked-things (type (list (string 32) 512)) (default ()) (send none) (save \#t)))
+    ((thing monster)
+     (health (type int 0 4000) (default 100) (send none)))))
+
+(define *net-events*
+  '((pickup (args (item (string 24))) (to owner) (reliable \#t))
+    (hurt (args (amount (int 0 255)) (from entity)) (to owner) (reliable \#f))
+    (weapon-fire (args (slot (int 1 9))) (to (near 40)) (reliable \#f))
+    (secret-found (args) (to all) (reliable \#t))))
+
+(define *net-extension*
+  '((player (fields 8) (bytes 32))
+    (session (fields 4) (bytes 16))
+    (events (count 4) (bytes 64))))
+
+(define *net-sessions*
+  '((campaign
+     (players 1 4)
+     (join (invite 3))
+     (announce private)
+     (roles host guest)
+     (listing (mission (string 32)) (difficulty (symbol easy normal hard nightmare))))
+    (deathmatch
+     (players 2 16)
+     (join (open 16))
+     (announce listed)
+     (roles player)
+     (listing (map (string 32)) (players (int 0 16))))))
+</code></pre>
+
+A mod adding stamina declares only its own field, which the loader names `staminamod/stamina` and counts against the eight player fields the budget allows.
+
+<pre><code class="language-scheme">(define *net-state*
+  '((player
+     (stamina (type (real 0 1 1/64)) (default 1) (send owner) (travel \#t)))))
+</code></pre>
+
+# Planned
+
+A `slopserver` build of the same sources without the render, audio and UI modules, so a server binary links no X11, OpenGL or audio libraries. `--dedicated` already needs no display or GPU, but the `slopengine` binary still links those libraries.
+
+# Open questions
+
+How the coordinator is run for small games: inside the first server process, as its own process, or entirely through a platform service such as Steam lobbies.
+
+What a client's view of `session` fields is while it is being transferred and has left one session but not yet joined the next.

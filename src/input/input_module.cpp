@@ -1,5 +1,7 @@
 #include "input/input_module.hpp"
 
+#include "camera/components.hpp"
+#include "core/sim_clock.hpp"
 #include "game/user_settings.hpp"
 #include "input/action_registry.hpp"
 #include "input/actions.hpp"
@@ -7,6 +9,9 @@
 #include "input/input_command.hpp"
 #include "input/input_context.hpp"
 #include "input/input_state.hpp"
+#include "input/player_command.hpp"
+#include "physics/components.hpp"
+#include "script/player_target.hpp"
 #include "script/scheme_call.hpp"
 #include "script/script_context.hpp"
 
@@ -62,16 +67,46 @@ void registerComponents(flecs::world& world) {
     world.component<InputState>();
     world.component<InputContextStack>();
     world.component<InputCommand>();
+    world.component<LocalPlayer>();
+    world.component<PlayerCommand>();
 }
 
 void registerSystems(flecs::world& world) {
     world.system("PollInput")
         .kind(flecs::PreUpdate)
         .run([](flecs::iter& it) {
-            pollInput(
-                it.world().get_mut<InputState>(),
-                it.world().get<UserSettings>().controls);
+            InputState& input = it.world().get_mut<InputState>();
+            pollInput(input, it.world().get<UserSettings>().controls);
+            input.latchPresses();
         });
+
+    world.system("BuildLocalPlayerCommand")
+        .kind(flecs::PreUpdate)
+        .run([](flecs::iter& it) {
+            flecs::world world = it.world();
+            InputState& input = world.get_mut<InputState>();
+            const flecs::entity player = findLocalPlayer(world);
+            if (!player.is_valid()) {
+                input.clearPendingPresses();
+                return;
+            }
+            float yaw = 0.0f;
+            float pitch = 0.0f;
+            if (const FirstPersonController* controller = player.try_get<FirstPersonController>()) {
+                yaw = controller->yaw;
+                pitch = controller->pitch;
+            }
+            PlayerCommand command = player.has<PlayerCommand>() ? player.get<PlayerCommand>() : PlayerCommand{};
+            buildPlayerCommand(
+                command,
+                input,
+                world.get<InputCommand>(),
+                yaw,
+                pitch,
+                world.get<InputContextStack>().allowsGameplay(),
+                world.get<SimClock>().tick);
+            player.set<PlayerCommand>(std::move(command));
+        }).add<SimSystem>();
 
     world.system("CaptureInputCommand")
         .kind(flecs::PreUpdate)
@@ -93,26 +128,25 @@ void registerSystems(flecs::world& world) {
         .kind(flecs::OnUpdate)
         .run([](flecs::iter& it) {
             flecs::world world = it.world();
-            InputState& input = world.get_mut<InputState>();
-            InputContextStack& contexts = world.get_mut<InputContextStack>();
-
-            if (!contexts.allowsGameplay()) {
-                return;
-            }
             if (!world.has<ScriptContext>() || world.get<ScriptContext>().scheme == nullptr) {
                 return;
             }
 
             s7_scheme* scheme = world.get<ScriptContext>().scheme;
             const ActionRegistry& registry = actionRegistry();
-            for (int i = registry.coreCount(); i < registry.size(); ++i) {
-                if (!input.pressed(i)) {
-                    continue;
+            world.each([&](flecs::entity entity, const PlayerCommand& command) {
+                const std::string player =
+                    entity.has<PlayerBody>() && entity.name().length() > 0 ? std::string(entity.name().c_str()) : std::string("Player");
+                ScriptPlayerGuard guard(player);
+                for (int i = registry.coreCount(); i < registry.size(); ++i) {
+                    if (!command.pressed(i)) {
+                        continue;
+                    }
+                    const std::string procName = std::string("on-action-") + registry.at(i).id;
+                    tryCallSchemeProc(scheme, procName, ScriptScope::World);
                 }
-                const std::string procName = std::string("on-action-") + registry.at(i).id;
-                tryCallSchemeProc(scheme, procName, ScriptScope::World);
-            }
-        });
+            });
+        }).add<SimSystem>();
 }
 
 }

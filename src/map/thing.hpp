@@ -1,7 +1,9 @@
 #pragma once
 
+#include "assets/bone_scale.hpp"
 #include "map/handler_binding.hpp"
 #include "physics/components.hpp"
+#include "physics/prop_box.hpp"
 
 #include <raylib.h>
 
@@ -60,6 +62,9 @@ struct Thing {
     std::string animClip;
     bool animLoop = true;
     bool haveAnim = false;
+    std::string animBank;
+    NamedBoneScales boneScales;
+    std::vector<PropBox> collisionBoxes;
 
     std::string prompt = "Interact";
     HandlerBinding onUse;

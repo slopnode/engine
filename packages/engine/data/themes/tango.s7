@@ -1,0 +1,57 @@
+(define *package-theme*
+  '((name "Tango")
+    (fonts
+      (normal  "FiraSans/FiraSans-Regular" 15)
+      (bold    "FiraSans/FiraSans-Bold" 15)
+      (heading "FiraSans/FiraSans-Bold" 24)
+      (mono    "JetBrainsMono/JetBrainsMono" 13))
+    (colors
+      (bg       238 238 236)
+      (surface  211 215 207)
+      (accent   52 101 164)
+      (text     46 52 54)
+      (text-dim 136 138 133)
+      (danger   204 0 0))
+    (metrics
+      (rounding 3)
+      (border 1)
+      (frame-border 1)
+      (bevel 0)
+      (padding 10 8)
+      (frame-padding 8 4)
+      (spacing 6 4)
+      (button-height 28))
+    (menu-bar
+      (height 28)
+      (font normal)
+      (bg (gradient (238 238 236) (211 215 207)))
+      (icons #t)
+      (version-label #t))
+    (window
+      (title-font bold)
+      (title-align left)
+      (bg bg)
+      (title-bg (gradient (186 189 182) (136 138 133)))
+      (title-bg-active (gradient (114 159 207) (52 101 164)))
+      (title-text 255 255 255)
+      (draggable #t))
+    (button
+      (bg (gradient (255 255 255) (211 215 207)))
+      (bg-hover (gradient (255 255 255) (238 238 236)))
+      (bg-active (gradient (186 189 182) (211 215 207)))
+      (bg-disabled surface)
+      (primary-bg (gradient (114 159 207) (52 101 164)))
+      (primary-bg-hover (gradient (148 184 222) (73 124 186)))
+      (primary-bg-active (gradient (52 101 164) (32 74 135)))
+      (text text)
+      (text-hover text))
+    (panel
+      (bg 255 255 255)
+      (border 186 189 182))
+    (skin)
+    (sounds
+      (volume 1.0))
+    (chrome
+      (pause-title "Paused")
+      (pause-dim 0.4)
+      (pause-width 320))))

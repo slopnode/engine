@@ -15,6 +15,7 @@ void captureHookOwners(s7_scheme* scheme);
 void clearHookRegistry(s7_scheme* scheme);
 
 void callHook(s7_scheme* scheme, std::string_view name, ScriptScope scope);
+void callHookWith(s7_scheme* scheme, std::string_view name, s7_pointer args, ScriptScope scope);
 void callHook1String(
     s7_scheme* scheme,
     std::string_view name,
@@ -30,6 +31,14 @@ void callHook2String(
     std::string_view name,
     const std::string& arg0,
     const std::string& arg1,
+    ScriptScope scope);
+
+void callHook3String(
+    s7_scheme* scheme,
+    std::string_view name,
+    const std::string& arg0,
+    const std::string& arg1,
+    const std::string& arg2,
     ScriptScope scope);
 
 /** Call owner then contribs; false if any returns falsey. Missing hooks => true. */

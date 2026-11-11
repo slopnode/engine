@@ -6,6 +6,7 @@
 #include <raylib.h>
 #include <s7.h>
 
+#include <algorithm>
 #include <cstring>
 
 namespace slopengine {
@@ -112,6 +113,10 @@ bool parseKindName(std::string_view name, ThingKind& out) {
         out = ThingKind::Pickup;
         return true;
     }
+    if (name == "marker") {
+        out = ThingKind::Marker;
+        return true;
+    }
     return false;
 }
 
@@ -135,6 +140,62 @@ bool readAssocVec3(s7_scheme* scheme, s7_pointer alist, const char* key, Vector3
     out.x = static_cast<float>(s7_number_to_real(scheme, x));
     out.y = static_cast<float>(s7_number_to_real(scheme, y));
     out.z = static_cast<float>(s7_number_to_real(scheme, z));
+    return true;
+}
+
+bool parseBoneScales(s7_scheme* scheme, s7_pointer entries, NamedBoneScales& out) {
+    out.clear();
+    for (s7_pointer cursor = entries; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
+        const s7_pointer entry = s7_car(cursor);
+        std::string bone;
+        if (!s7_is_pair(entry) || !readStringValue(scheme, s7_car(entry), bone) || bone.empty()) {
+            return false;
+        }
+        BoneScale scale{};
+        const s7_pointer values = s7_cdr(entry);
+        if (!s7_is_pair(values) || !s7_is_number(s7_car(values))) {
+            return false;
+        }
+        scale.size = static_cast<float>(s7_number_to_real(scheme, s7_car(values)));
+        if (s7_is_pair(s7_cdr(values))) {
+            if (!s7_is_number(s7_cadr(values))) {
+                return false;
+            }
+            scale.length = static_cast<float>(s7_number_to_real(scheme, s7_cadr(values)));
+        }
+        if (scale.size <= 0.0f || scale.length <= 0.0f) {
+            return false;
+        }
+        out.emplace_back(bone, scale);
+    }
+    return true;
+}
+
+bool parseCollisionBoxes(s7_scheme* scheme, s7_pointer entries, std::vector<PropBox>& out) {
+    out.clear();
+    for (s7_pointer cursor = entries; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
+        const s7_pointer entry = s7_car(cursor);
+        if (!s7_is_pair(entry) || !s7_is_symbol(s7_car(entry)) ||
+            std::strcmp(s7_symbol_name(s7_car(entry)), "box") != 0) {
+            return false;
+        }
+        float values[6]{};
+        s7_pointer value = s7_cdr(entry);
+        for (float& v : values) {
+            if (!s7_is_pair(value) || !s7_is_number(s7_car(value))) {
+                return false;
+            }
+            v = static_cast<float>(s7_number_to_real(scheme, s7_car(value)));
+            value = s7_cdr(value);
+        }
+        PropBox box{};
+        box.min = {std::min(values[0], values[3]), std::min(values[1], values[4]), std::min(values[2], values[5])};
+        box.max = {std::max(values[0], values[3]), std::max(values[1], values[4]), std::max(values[2], values[5])};
+        if (box.max.x <= box.min.x || box.max.y <= box.min.y || box.max.z <= box.min.z) {
+            return false;
+        }
+        out.push_back(box);
+    }
     return true;
 }
 
@@ -373,10 +434,10 @@ bool ThingDefRegistry::registerDef(ThingDef def) {
         return false;
     }
     if (def.kind != ThingKind::Prop && def.kind != ThingKind::Actor &&
-        def.kind != ThingKind::Pickup) {
+        def.kind != ThingKind::Pickup && def.kind != ThingKind::Marker) {
         TraceLog(
             LOG_WARNING,
-            "THINGDEFS: '%s' kind must be prop, actor, or pickup; ignored",
+            "THINGDEFS: '%s' kind must be prop, actor, pickup, or marker; ignored",
             def.id.c_str());
         return false;
     }
@@ -459,6 +520,9 @@ void applyThingDef(const ThingDef& def, Thing& out) {
     out.haveAnim = def.haveAnim;
     out.animClip = def.animClip;
     out.animLoop = def.animLoop;
+    out.animBank = def.animBank;
+    out.boneScales = def.boneScales;
+    out.collisionBoxes = def.collisionBoxes;
     out.haveMotor = def.haveMotor;
     out.motorRadius = def.motorRadius;
     out.motorHeight = def.motorHeight;
@@ -586,6 +650,27 @@ bool registerPackageThingsFromScheme(s7_scheme* scheme) {
         bool animLoop = true;
         if (readAssocBool(scheme, props, "anim-loop", animLoop) && def.haveAnim) {
             def.animLoop = animLoop;
+        }
+        readAssocString(scheme, props, "anims", def.animBank);
+
+        s7_pointer boneScalesVal = nullptr;
+        if (readAssoc(scheme, props, "bone-scales", boneScalesVal) &&
+            !parseBoneScales(scheme, boneScalesVal, def.boneScales)) {
+            TraceLog(
+                LOG_WARNING,
+                "THINGDEFS: '%s' has invalid bone-scales, expected (\"bone\" size [length]) entries; ignored",
+                def.id.c_str());
+            def.boneScales.clear();
+        }
+
+        s7_pointer collisionVal = nullptr;
+        if (readAssoc(scheme, props, "collision", collisionVal) &&
+            !parseCollisionBoxes(scheme, collisionVal, def.collisionBoxes)) {
+            TraceLog(
+                LOG_WARNING,
+                "THINGDEFS: '%s' has invalid collision, expected (box x0 y0 z0 x1 y1 z1) entries; ignored",
+                def.id.c_str());
+            def.collisionBoxes.clear();
         }
 
         s7_pointer motorVal = nullptr;

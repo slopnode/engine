@@ -18,7 +18,6 @@ void runBspBuildTests() {
         CHECK(tree.root >= 0);
         CHECK_FALSE(tree.nodes.empty());
         CHECK_FALSE(tree.leaves.empty());
-        CHECK(tree.portals.empty());
 
         const std::int32_t interiorLeaf = pointLeaf(tree, {0.0f, 1.25f, 0.0f});
         CHECK(interiorLeaf >= 0);
@@ -26,6 +25,11 @@ void runBspBuildTests() {
 
         const MapHullAnalysis analysis = analyzeMapHull(tree, brushes);
         CHECK(analysis.sealed);
+        for (const BspPortal& portal : tree.portals) {
+            CHECK_EQ(
+                analysis.exteriorEmpty[static_cast<std::size_t>(portal.leafA)],
+                analysis.exteriorEmpty[static_cast<std::size_t>(portal.leafB)]);
+        }
 
         const std::int32_t exteriorLeaf = pointLeaf(
             tree,

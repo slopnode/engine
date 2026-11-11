@@ -7,6 +7,7 @@
 #include "core/semver.hpp"
 #include "core/user_paths.hpp"
 #include "map/map_meta.hpp"
+#include "render/gpu_ready.hpp"
 #include "script/package_load_context.hpp"
 #include "script/proc_role.hpp"
 
@@ -417,7 +418,7 @@ std::vector<AssetStore::MapListEntry> AssetStore::listMaps() const {
                 continue;
             }
             const std::string id = it->path().filename().generic_string();
-            if (id.empty()) {
+            if (id.empty() || id == titleMap_) {
                 continue;
             }
             MapListEntry entry{};
@@ -441,6 +442,35 @@ std::vector<AssetStore::MapListEntry> AssetStore::listMaps() const {
         return a.name < b.name;
     });
     return maps;
+}
+
+std::vector<std::string> AssetStore::listBotScripts() const {
+    std::vector<std::string> names;
+    std::vector<const Package*> order;
+    for (const Package& package : vfs_.packages()) {
+        if (package.meta().id == basePackageId()) {
+            order.insert(order.begin(), &package);
+        } else {
+            order.push_back(&package);
+        }
+    }
+    for (const Package* package : order) {
+        std::vector<std::string> found;
+        std::error_code ec;
+        for (std::filesystem::directory_iterator it(package->root() / "scripts" / "bots", ec), end; it != end && !ec;
+             it.increment(ec)) {
+            if (it->is_regular_file() && it->path().extension() == ".s7") {
+                found.push_back(it->path().stem().string());
+            }
+        }
+        std::sort(found.begin(), found.end());
+        for (std::string& name : found) {
+            if (std::find(names.begin(), names.end(), name) == names.end()) {
+                names.push_back(std::move(name));
+            }
+        }
+    }
+    return names;
 }
 
 bool AssetStore::hasMapBsp(std::string_view path) const {
@@ -541,7 +571,7 @@ const IconAtlas* AssetStore::getIconAtlas(std::string_view set) {
         return nullptr;
     }
 
-    atlas.texture = LoadTexture(resolved->string().c_str());
+    atlas.texture = loadTextureIfGpu(resolved->string().c_str());
     if (atlas.texture.id == 0) {
         TraceLog(LOG_WARNING, "Failed to load icon atlas texture: %s", atlasVirtual.c_str());
         return nullptr;
@@ -589,8 +619,8 @@ Texture2D AssetStore::getTexture(std::string_view path) {
         return {};
     }
 
-    const Texture2D texture = LoadTexture(resolved->string().c_str());
-    if (texture.id == 0) {
+    const Texture2D texture = loadTextureIfGpu(resolved->string().c_str());
+    if (texture.id == 0 && (gpuReady() || texture.width == 0)) {
         return {};
     }
 
@@ -734,38 +764,30 @@ Model AssetStore::getGeoModel(std::string_view path) {
         return existing->second;
     }
 
-    if (!hasGeo(path) || !hasGeoVert(path)) {
+    if (!hasGeo(path)) {
         return {};
     }
 
-    GeoAsset asset{};
-    if (!parseGeoAsset(getGeoSource(path), asset)) {
+    const GeoAsset* parsed = getGeoAsset(path);
+    if (parsed == nullptr) {
+        return {};
+    }
+    const GeoAsset& asset = *parsed;
+    const std::string_view vertPath = asset.verticesFrom.empty() ? path : std::string_view(asset.verticesFrom);
+    if (!hasGeoVert(vertPath)) {
         return {};
     }
 
-    const auto vertBytes = readGeoVert(path);
+    const auto vertBytes = readGeoVert(vertPath);
     VertBuffer buffer{};
     if (!loadVertBuffer(vertBytes, buffer)) {
         return {};
     }
 
     const SkeletonAsset* skeleton = nullptr;
-    std::string skeletonPath = asset.skeletonId;
+    const std::string skeletonPath = resolveSkeletonPathForGeo(asset, path);
     if (!skeletonPath.empty()) {
-        skeletonPath = resolveSkeletonVirtualPath(
-            skeletonPath,
-            path,
-            [this](std::string_view candidate) { return hasSkeleton(candidate); });
         skeleton = getSkeletonAsset(skeletonPath);
-    } else {
-        const std::string inferred = parentVirtualPath(path);
-        if (hasSkeleton(inferred)) {
-            skeletonPath = inferred;
-            skeleton = getSkeletonAsset(skeletonPath);
-        } else if (hasSkeleton(path)) {
-            skeletonPath = std::string{path};
-            skeleton = getSkeletonAsset(skeletonPath);
-        }
     }
 
     std::vector<VertexWeights> weights{};
@@ -806,6 +828,61 @@ Model AssetStore::getGeoModel(std::string_view path) {
     return model;
 }
 
+std::string AssetStore::resolveSkeletonPathForGeo(const GeoAsset& asset, std::string_view geoPath) const {
+    if (!asset.skeletonId.empty()) {
+        return resolveSkeletonVirtualPath(
+            asset.skeletonId,
+            geoPath,
+            [this](std::string_view candidate) { return hasSkeleton(candidate); });
+    }
+    const std::string inferred = parentVirtualPath(geoPath);
+    if (hasSkeleton(inferred)) {
+        return inferred;
+    }
+    if (hasSkeleton(geoPath)) {
+        return std::string{geoPath};
+    }
+    return {};
+}
+
+std::string AssetStore::resolveGeoSkeletonPath(std::string_view geoPath) {
+    const GeoAsset* asset = getGeoAsset(geoPath);
+    if (asset == nullptr) {
+        return {};
+    }
+    return resolveSkeletonPathForGeo(*asset, geoPath);
+}
+
+const GeoAsset* AssetStore::getGeoAsset(std::string_view path) {
+    const auto key = cacheKey(path);
+    const auto existing = geoAssets_.find(key);
+    if (existing != geoAssets_.end()) {
+        return &existing->second;
+    }
+    if (!hasGeo(path)) {
+        return nullptr;
+    }
+    GeoAsset asset{};
+    if (!parseGeoAsset(getGeoSource(path), asset)) {
+        TraceLog(LOG_WARNING, "Failed to parse geo: %s", key.c_str());
+        return nullptr;
+    }
+    return &geoAssets_.emplace(key, std::move(asset)).first->second;
+}
+
+void AssetStore::invalidateGeo(std::string_view path) {
+    geoAssets_.erase(cacheKey(path));
+}
+
+void AssetStore::invalidateAnim(std::string_view path) {
+    const auto it = animBanks_.find(cacheKey(path));
+    if (it == animBanks_.end()) {
+        return;
+    }
+    unloadAnimBank(it->second);
+    animBanks_.erase(it);
+}
+
 Shader AssetStore::getSkinningShader() {
     if (skinningShader_.id != 0) {
         return skinningShader_;
@@ -816,13 +893,16 @@ Shader AssetStore::getSkinningShader() {
         return {};
     }
 
-    const std::string vertexSource = getShaderSource("default/skinning_vert");
+    const std::string vertexSource = getModelShaderSource("default/skinning_vert");
     const std::string fragmentSource = getShaderSource("default/skinning_frag");
-    skinningShader_ = LoadShaderFromMemory(vertexSource.c_str(), fragmentSource.c_str());
+    skinningShader_ = loadShaderFromMemoryIfGpu(vertexSource.c_str(), fragmentSource.c_str());
     if (skinningShader_.id == 0) {
-        TraceLog(LOG_WARNING, "Failed to compile skinning shader");
+        if (gpuReady()) {
+            TraceLog(LOG_WARNING, "Failed to compile skinning shader");
+        }
         return {};
     }
+    skinningShader_.locs[SHADER_LOC_MAP_HEIGHT] = GetShaderLocation(skinningShader_, "deformMask");
 
     return skinningShader_;
 }
@@ -844,6 +924,27 @@ void AssetStore::unloadTexture(std::string_view path) {
 
 std::string AssetStore::getShaderSource(std::string_view path) {
     return vfs_.readText(AssetKind::Shader, path);
+}
+
+std::string spliceModelDeform(std::string source, std::string deform) {
+    const std::string token = "#include \"MODEL_DEFORM\"";
+    const std::size_t at = source.find(token);
+    if (at == std::string::npos) {
+        return source;
+    }
+    if (deform.rfind("#version", 0) == 0) {
+        const std::size_t end = deform.find('\n');
+        deform.erase(0, end == std::string::npos ? deform.size() : end + 1);
+    }
+    if (deform.find("modelDeform") == std::string::npos) {
+        deform = "void modelDeform(inout vec3 position, inout vec3 normal, vec2 texCoord, vec4 boneIndices, vec4 boneWeights) {}\n";
+    }
+    source.replace(at, token.size(), deform);
+    return source;
+}
+
+std::string AssetStore::getModelShaderSource(std::string_view path) {
+    return spliceModelDeform(getShaderSource(path), getShaderSource("default/model_deform"));
 }
 
 std::string AssetStore::getMaterialSource(std::string_view path) {
@@ -1203,7 +1304,7 @@ Texture2D AssetStore::resolveTextureGraphOutput(std::string_view path, std::stri
         TraceLog(LOG_WARNING, "Texture graph %s output '%s': %s", std::string(path).c_str(), std::string(outputName).c_str(), error.c_str());
         return {};
     }
-    const Texture2D texture = LoadTextureFromImage(image);
+    const Texture2D texture = loadTextureFromImageIfGpu(image);
     UnloadImage(image);
     if (texture.id == 0) {
         return {};
@@ -1443,8 +1544,11 @@ bool AssetStore::loadScript(s7_scheme* scheme, std::string_view path) {
     const PackageRole role =
         owned->package != nullptr ? owned->package->role() : PackageRole::Base;
     const ProcRoleSnapshot before = snapshotProcRoles(scheme);
-    PackageLoadContextGuard loadGuard(packageId, role);
-    s7_load(scheme, owned->path.string().c_str());
+    {
+        PackageLoadContextGuard loadGuard(packageId, role);
+        ScriptCallGuard callGuard(scheme, role);
+        s7_load(scheme, owned->path.string().c_str());
+    }
     stampProcRoles(scheme, before, role);
     return true;
 }
@@ -1461,8 +1565,11 @@ bool AssetStore::loadScriptFromPackage(
     const PackageRole role =
         owned->package != nullptr ? owned->package->role() : PackageRole::Base;
     const ProcRoleSnapshot before = snapshotProcRoles(scheme);
-    PackageLoadContextGuard loadGuard(packageId, role);
-    s7_load(scheme, owned->path.string().c_str());
+    {
+        PackageLoadContextGuard loadGuard(packageId, role);
+        ScriptCallGuard callGuard(scheme, role);
+        s7_load(scheme, owned->path.string().c_str());
+    }
     stampProcRoles(scheme, before, role);
     return true;
 }
@@ -1534,8 +1641,11 @@ bool AssetStore::loadData(s7_scheme* scheme, std::string_view path) {
     const PackageRole role =
         owned->package != nullptr ? owned->package->role() : PackageRole::Base;
     const ProcRoleSnapshot before = snapshotProcRoles(scheme);
-    PackageLoadContextGuard loadGuard(packageId, role);
-    s7_load(scheme, owned->path.string().c_str());
+    {
+        PackageLoadContextGuard loadGuard(packageId, role);
+        ScriptCallGuard callGuard(scheme, role);
+        s7_load(scheme, owned->path.string().c_str());
+    }
     stampProcRoles(scheme, before, role);
     return true;
 }
@@ -1552,8 +1662,11 @@ bool AssetStore::loadDataFromPackage(
     const PackageRole role =
         owned->package != nullptr ? owned->package->role() : PackageRole::Base;
     const ProcRoleSnapshot before = snapshotProcRoles(scheme);
-    PackageLoadContextGuard loadGuard(packageId, role);
-    s7_load(scheme, owned->path.string().c_str());
+    {
+        PackageLoadContextGuard loadGuard(packageId, role);
+        ScriptCallGuard callGuard(scheme, role);
+        s7_load(scheme, owned->path.string().c_str());
+    }
     stampProcRoles(scheme, before, role);
     return true;
 }

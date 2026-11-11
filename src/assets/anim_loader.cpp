@@ -1,11 +1,14 @@
 #include "assets/anim_loader.hpp"
 #include "assets/skeleton_loader.hpp"
 
+#include <algorithm>
 #include <charconv>
 #include <cstdint>
 #include <cstring>
 #include <optional>
+#include <sstream>
 #include <string>
+#include <vector>
 
 #include <raymath.h>
 
@@ -144,6 +147,16 @@ bool parseAnimAsset(std::string_view source, AnimAsset& asset) {
             } else if (auto tracks = readQuotedField(line, "tracks ")) {
                 current.tracksFile = *tracks;
                 current.tracksImplicit = false;
+            } else if (startsWith(line, "event ")) {
+                AnimEvent event{};
+                const std::string_view rest = trim(line.substr(6));
+                const auto parsed = std::from_chars(rest.data(), rest.data() + rest.size(), event.frame);
+                const auto name = readQuotedField(line, "event ");
+                if (parsed.ec != std::errc{} || !name || name->empty()) {
+                    return false;
+                }
+                event.name = *name;
+                current.events.push_back(std::move(event));
             } else if (startsWith(line, "tracks implicit")) {
                 current.tracksImplicit = true;
             } else if (startsWith(line, ")")) {
@@ -164,6 +177,50 @@ bool parseAnimAsset(std::string_view source, AnimAsset& asset) {
     }
 
     return !asset.clips.empty();
+}
+
+std::string serializeAnimAsset(const AnimAsset& asset) {
+    std::ostringstream out;
+    out << "(anim\n";
+    out << "  (skeleton \"" << asset.skeletonId << "\")\n";
+    out << "  (clips\n";
+    out << "   (\n";
+    for (const AnimClip& clip : asset.clips) {
+        out << "    (name \"" << clip.name << "\"\n";
+        out << "     fps " << clip.fps << "\n";
+        out << "     duration " << clip.duration << "\n";
+        std::vector<AnimEvent> events = clip.events;
+        std::stable_sort(events.begin(), events.end(), [](const AnimEvent& a, const AnimEvent& b) {
+            return a.frame < b.frame;
+        });
+        for (const AnimEvent& event : events) {
+            out << "     event " << event.frame << " \"" << event.name << "\"\n";
+        }
+        if (!clip.tracksImplicit && !clip.tracksFile.empty()) {
+            out << "     tracks \"" << clip.tracksFile << "\"\n";
+        }
+        out << "    )\n";
+    }
+    out << "   ))\n";
+    out << ")\n";
+    return out.str();
+}
+
+void collectAnimEvents(
+    const AnimClip& clip,
+    float previousFrame,
+    float frame,
+    bool wrapped,
+    std::vector<const AnimEvent*>& out) {
+    for (const AnimEvent& event : clip.events) {
+        const float at = static_cast<float>(event.frame);
+        const bool crossed = wrapped
+            ? (at > previousFrame || at <= frame)
+            : (at > previousFrame && at <= frame);
+        if (crossed) {
+            out.push_back(&event);
+        }
+    }
 }
 
 bool loadTracksToModelAnimation(
@@ -297,6 +354,8 @@ bool buildAnimBank(
             unloadModelAnimation(animation);
             continue;
         }
+
+        matrixClip.localKeyframes = buildLocalPoseKeyframes(skeleton, matrixClip.keyframes);
 
         bank.clipIndexByName[clip.name] = bank.clips.size();
         bank.clipMeta.push_back(clip);

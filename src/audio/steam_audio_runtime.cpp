@@ -7,7 +7,9 @@
 
 #include <raylib.h>
 
+#include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace slopengine {
 
@@ -17,6 +19,7 @@ constexpr int kMaxNumRays = 1024;
 constexpr int kNumDiffuseSamples = 32;
 constexpr int kNumBounces = 8;
 constexpr float kIrradianceMinDistance = 1.0f;
+constexpr int kPrewarmedEffects = SteamAudioRuntime::kSpatialVoiceBudget + 8;
 
 float length3(float x, float y, float z) {
     return std::sqrt(x * x + y * y + z * z);
@@ -66,7 +69,7 @@ bool SteamAudioRuntime::init(int samplingRate, int frameSize) {
 
     audioSettings_.samplingRate = samplingRate > 0 ? samplingRate : 44100;
     (void)frameSize;
-    audioSettings_.frameSize = 512;
+    audioSettings_.frameSize = SAMPLE_GRANULARITY;
 
     IPLHRTFSettings hrtfSettings{};
     hrtfSettings.type = IPL_HRTFTYPE_DEFAULT;
@@ -99,10 +102,31 @@ bool SteamAudioRuntime::init(int samplingRate, int frameSize) {
         return false;
     }
 
+    IPLSourceSettings reverbSettings{};
+    reverbSettings.flags = IPL_SIMULATIONFLAGS_REFLECTIONS;
+    if (iplSourceCreate(simulator_, &reverbSettings, &reverbSource_) != IPL_STATUS_SUCCESS) {
+        TraceLog(LOG_ERROR, "STEAM AUDIO: iplSourceCreate failed for the listener reverb");
+        shutdown();
+        return false;
+    }
+    iplSourceAdd(reverbSource_, simulator_);
+    iplSimulatorCommit(simulator_);
+
+    cleanEffects_.reserve(static_cast<std::size_t>(kMaxSlots) * 2u);
+    dirtyEffects_.reserve(static_cast<std::size_t>(kMaxSlots) * 2u);
+    resettingEffects_.reserve(static_cast<std::size_t>(kMaxSlots) * 2u);
+    for (int i = 0; i < kPrewarmedEffects; ++i) {
+        std::unique_ptr<SteamAudioVoiceEffects> effects = createEffects();
+        if (effects == nullptr) {
+            break;
+        }
+        cleanEffects_.push_back(std::move(effects));
+    }
+
     spatializeFilter_ = std::make_unique<SteamAudioSpatializeFilter>(this);
     ready_ = true;
     TraceLog(
-        LOG_INFO,
+        LOG_DEBUG,
         "STEAM AUDIO: ready (rate=%d frame=%d reflections=parametric)",
         audioSettings_.samplingRate,
         audioSettings_.frameSize);
@@ -120,6 +144,25 @@ void SteamAudioRuntime::shutdown() {
     }
 
     spatializeFilter_.reset();
+
+    {
+        std::lock_guard<std::mutex> lock(poolMutex_);
+        for (std::unique_ptr<SteamAudioVoiceEffects>& effects : cleanEffects_) {
+            destroyEffects(*effects);
+        }
+        for (std::unique_ptr<SteamAudioVoiceEffects>& effects : dirtyEffects_) {
+            destroyEffects(*effects);
+        }
+        cleanEffects_.clear();
+        dirtyEffects_.clear();
+    }
+    hasListener_ = false;
+
+    if (reverbSource_ != nullptr) {
+        iplSourceRemove(reverbSource_, simulator_);
+        iplSimulatorCommit(simulator_);
+        iplSourceRelease(&reverbSource_);
+    }
 
     if (simulator_ != nullptr) {
         iplSimulatorRelease(&simulator_);
@@ -149,8 +192,9 @@ bool SteamAudioRuntime::setSceneFromBrushes(
     const bool ok = createSteamAudioScene(
         context_, simulator_, brushes, excludeBrushIds, assets, &scene_, &staticMesh_);
     sceneReady_ = ok;
+    reflectionTimer_ = kReflectionInterval;
     if (ok) {
-        TraceLog(LOG_INFO, "STEAM AUDIO: scene built from brushes");
+        TraceLog(LOG_DEBUG, "STEAM AUDIO: scene built from brushes");
     } else {
         TraceLog(LOG_WARNING, "STEAM AUDIO: failed to build scene from brushes");
     }
@@ -173,7 +217,9 @@ int SteamAudioRuntime::trackVoice(
     float z,
     float minDistance,
     float maxDistance,
-    float baseVolume) {
+    float baseVolume,
+    bool looping,
+    float dryLength) {
     if (voice == 0 || !ready_) {
         return -1;
     }
@@ -192,10 +238,11 @@ int SteamAudioRuntime::trackVoice(
     s.minDistance = minDistance;
     s.maxDistance = maxDistance;
     s.baseVolume = baseVolume;
+    s.looping = looping;
+    s.dryLength = dryLength;
 
     IPLSourceSettings sourceSettings{};
-    sourceSettings.flags = static_cast<IPLSimulationFlags>(
-        IPL_SIMULATIONFLAGS_DIRECT | IPL_SIMULATIONFLAGS_REFLECTIONS);
+    sourceSettings.flags = IPL_SIMULATIONFLAGS_DIRECT;
     if (iplSourceCreate(simulator_, &sourceSettings, &s.source) != IPL_STATUS_SUCCESS) {
         TraceLog(LOG_WARNING, "STEAM AUDIO: iplSourceCreate failed");
         freeSlotUnlocked(slot);
@@ -221,11 +268,105 @@ int SteamAudioRuntime::trackVoice(
     seeded.transmission[2] = 1.0f;
     seeded.distanceAttenuation = 1.0f;
     seeded.active = true;
-    {
-        std::lock_guard<std::mutex> renderLock(renderMutex_);
+
+    if (hasListener_) {
+        setSourceInputsUnlocked(s);
+        iplSimulatorRunDirect(simulator_);
+    }
+    std::lock_guard<std::mutex> renderLock(renderMutex_);
+    if (hasListener_) {
+        refreshSlotUnlocked(slot, 1.0f, 1.0f);
+    } else {
         renderParams_[static_cast<std::size_t>(slot)] = seeded;
     }
     return slot;
+}
+
+bool SteamAudioRuntime::admitVoice(
+    SoLoud::Soloud& soloud,
+    float x,
+    float y,
+    float z,
+    float minDistance,
+    float volume,
+    bool looping) {
+    if (!ready_) {
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock(playMutex_);
+    int live = 0;
+    for (int i = 0; i < kMaxSlots; ++i) {
+        Slot& slot = slots_[static_cast<std::size_t>(i)];
+        if (!slot.used) {
+            continue;
+        }
+        if (slot.voice != 0 && !soloud.isValidVoiceHandle(slot.voice)) {
+            freeSlotUnlocked(i);
+            continue;
+        }
+        if (!slot.stolen) {
+            ++live;
+        }
+    }
+    if (live < kSpatialVoiceBudget) {
+        return true;
+    }
+
+    int quietest = -1;
+    float quietestScore = std::numeric_limits<float>::max();
+    for (int i = 0; i < kMaxSlots; ++i) {
+        const Slot& slot = slots_[static_cast<std::size_t>(i)];
+        if (!slot.used || slot.stolen || slot.looping || slot.voice == 0) {
+            continue;
+        }
+        float score = slot.baseVolume * slot.smoothedDistanceAttenuation;
+        if (slot.dryLength > 0.0f
+            && static_cast<float>(soloud.getStreamTime(slot.voice)) >= slot.dryLength) {
+            score *= kTailPriority;
+        }
+        if (score < quietestScore) {
+            quietestScore = score;
+            quietest = i;
+        }
+    }
+    if (quietest < 0) {
+        return looping;
+    }
+    if (!looping && volume * distanceAttenuation(x, y, z, minDistance) < quietestScore) {
+        return false;
+    }
+
+    Slot& victim = slots_[static_cast<std::size_t>(quietest)];
+    soloud.fadeVolume(victim.voice, 0.0f, kStealFadeTime);
+    soloud.scheduleStop(victim.voice, kStealFadeTime);
+    victim.stolen = true;
+    return true;
+}
+
+float SteamAudioRuntime::tailSeconds() const {
+    if (!sceneReady_) {
+        return kMinTail;
+    }
+    const float longest = std::max({reverbTimes_[0], reverbTimes_[1], reverbTimes_[2]});
+    return std::clamp(longest * kTailFraction, kMinTail, kMaxTail);
+}
+
+float SteamAudioRuntime::distanceAttenuation(float x, float y, float z, float minDistance) const {
+    if (!hasListener_) {
+        return 1.0f;
+    }
+    IPLDistanceAttenuationModel distanceModel{};
+    distanceModel.type = IPL_DISTANCEATTENUATIONTYPE_INVERSEDISTANCE;
+    distanceModel.minDistance = minDistance > 0.0f ? minDistance : 1.0f;
+    distanceModel.callback = nullptr;
+    distanceModel.userData = nullptr;
+    distanceModel.dirty = IPL_FALSE;
+    return iplDistanceAttenuationCalculate(
+        context_,
+        IPLVector3{x, y, z},
+        IPLVector3{lastListener_.posX, lastListener_.posY, lastListener_.posZ},
+        &distanceModel);
 }
 
 void SteamAudioRuntime::releaseVoice(SoLoud::handle voice) {
@@ -281,6 +422,8 @@ void SteamAudioRuntime::update(
     }
     lastUpdateTime_ = now;
     hasLastUpdateTime_ = true;
+
+    resetRecycledEffects();
     // Stalls (scene load, breakpoint, frame hitch) or the very first update should snap
     // straight to target values rather than slowly fading from stale defaults.
     const bool snap = dt <= 0.0f || dt > 0.5f;
@@ -288,6 +431,9 @@ void SteamAudioRuntime::update(
     const float reverbAlpha = snap ? 1.0f : 1.0f - std::exp(-dt / kReverbSmoothingTime);
 
     std::lock_guard<std::mutex> playLock(playMutex_);
+
+    lastListener_ = listener;
+    hasListener_ = true;
 
     for (const SteamAudioSourcePose& src : sources) {
         for (int i = 0; i < kMaxSlots; ++i) {
@@ -332,123 +478,236 @@ void SteamAudioRuntime::update(
         if (!slot.used || slot.source == nullptr) {
             continue;
         }
-
-        IPLSimulationInputs inputs{};
-        inputs.flags = static_cast<IPLSimulationFlags>(
-            IPL_SIMULATIONFLAGS_DIRECT | IPL_SIMULATIONFLAGS_REFLECTIONS);
-        inputs.directFlags = static_cast<IPLDirectSimulationFlags>(
-            IPL_DIRECTSIMULATIONFLAGS_OCCLUSION | IPL_DIRECTSIMULATIONFLAGS_TRANSMISSION);
-        inputs.source = makeCoords(slot.x, slot.y, slot.z, 0.0f, 0.0f, -1.0f, 0.0f, 1.0f, 0.0f);
-        inputs.occlusionType = IPL_OCCLUSIONTYPE_RAYCAST;
-        inputs.numTransmissionRays = 1;
-        inputs.reverbScale[0] = 1.0f;
-        inputs.reverbScale[1] = 1.0f;
-        inputs.reverbScale[2] = 1.0f;
-        inputs.hybridReverbTransitionTime = 0.0f;
-        inputs.hybridReverbOverlapPercent = 0.0f;
-        inputs.baked = IPL_FALSE;
-        iplSourceSetInputs(
-            slot.source,
-            static_cast<IPLSimulationFlags>(
-                IPL_SIMULATIONFLAGS_DIRECT | IPL_SIMULATIONFLAGS_REFLECTIONS),
-            &inputs);
+        setSourceInputsUnlocked(slot);
     }
 
     iplSimulatorRunDirect(simulator_);
-    if (sceneReady_) {
+    reflectionTimer_ += dt;
+    if (sceneReady_ && reverbSource_ != nullptr && (snap || reflectionTimer_ >= kReflectionInterval)) {
+        reflectionTimer_ = 0.0f;
+        IPLSimulationInputs reverbInputs{};
+        reverbInputs.flags = IPL_SIMULATIONFLAGS_REFLECTIONS;
+        reverbInputs.source = listenerCoords;
+        reverbInputs.reverbScale[0] = 1.0f;
+        reverbInputs.reverbScale[1] = 1.0f;
+        reverbInputs.reverbScale[2] = 1.0f;
+        reverbInputs.hybridReverbTransitionTime = 0.0f;
+        reverbInputs.hybridReverbOverlapPercent = 0.0f;
+        reverbInputs.baked = IPL_FALSE;
+        iplSourceSetInputs(reverbSource_, IPL_SIMULATIONFLAGS_REFLECTIONS, &reverbInputs);
         iplSimulatorRunReflections(simulator_);
+        IPLSimulationOutputs reverbOutputs{};
+        iplSourceGetOutputs(reverbSource_, IPL_SIMULATIONFLAGS_REFLECTIONS, &reverbOutputs);
+        for (int band = 0; band < 3; ++band) {
+            reverbTimes_[band] = reverbOutputs.reflections.reverbTimes[band];
+        }
     }
-
-    const IPLVector3 listenerPos{listener.posX, listener.posY, listener.posZ};
-    const IPLVector3 listenerAhead{listener.aheadX, listener.aheadY, listener.aheadZ};
-    const IPLVector3 listenerUp{listener.upX, listener.upY, listener.upZ};
-
-    IPLDistanceAttenuationModel distanceModel{};
-    distanceModel.type = IPL_DISTANCEATTENUATIONTYPE_INVERSEDISTANCE;
-    distanceModel.minDistance = 1.0f;
-    distanceModel.callback = nullptr;
-    distanceModel.userData = nullptr;
-    distanceModel.dirty = IPL_FALSE;
 
     std::lock_guard<std::mutex> renderLock(renderMutex_);
     for (int i = 0; i < kMaxSlots; ++i) {
-        Slot& slot = slots_[static_cast<std::size_t>(i)];
-        SteamAudioSlotRenderParams params{};
-        if (!slot.used || slot.source == nullptr) {
-            renderParams_[static_cast<std::size_t>(i)] = params;
-            continue;
-        }
-
-        IPLSimulationOutputs outputs{};
-        iplSourceGetOutputs(
-            slot.source,
-            static_cast<IPLSimulationFlags>(
-                IPL_SIMULATIONFLAGS_DIRECT | IPL_SIMULATIONFLAGS_REFLECTIONS),
-            &outputs);
-
-        const IPLVector3 sourcePos{slot.x, slot.y, slot.z};
-        const IPLVector3 relativeDir = iplCalculateRelativeDirection(
-            context_,
-            sourcePos,
-            listenerPos,
-            listenerAhead,
-            listenerUp);
-        params.dirX = relativeDir.x;
-        params.dirY = relativeDir.y;
-        params.dirZ = relativeDir.z;
-
-        distanceModel.minDistance = slot.minDistance > 0.0f ? slot.minDistance : 1.0f;
-        const float rawDistanceAttenuation = iplDistanceAttenuationCalculate(
-            context_,
-            sourcePos,
-            listenerPos,
-            &distanceModel);
-        const float rawOcclusion = sceneReady_ ? outputs.direct.occlusion : 1.0f;
-        const float rawTransmission[3] = {
-            outputs.direct.transmission[0],
-            outputs.direct.transmission[1],
-            outputs.direct.transmission[2],
-        };
-        const float rawReverbTimes[3] = {
-            sceneReady_ ? outputs.reflections.reverbTimes[0] : 0.0f,
-            sceneReady_ ? outputs.reflections.reverbTimes[1] : 0.0f,
-            sceneReady_ ? outputs.reflections.reverbTimes[2] : 0.0f,
-        };
-
-        // Raw simulation outputs are recomputed from scratch every call: raycast occlusion can
-        // flip instantly as the source/listener cross an edge, and the Monte Carlo reflection
-        // estimate carries sampling noise even for a static scene. Smooth both toward the target
-        // over time so occlusion transitions and reverb tails don't zipper/click.
-        const float slotDirectAlpha = slot.smoothingInit ? directAlpha : 1.0f;
-        const float slotReverbAlpha = slot.smoothingInit ? reverbAlpha : 1.0f;
-        slot.smoothingInit = true;
-
-        slot.smoothedDistanceAttenuation +=
-            slotDirectAlpha * (rawDistanceAttenuation - slot.smoothedDistanceAttenuation);
-        slot.smoothedOcclusion += slotDirectAlpha * (rawOcclusion - slot.smoothedOcclusion);
-        for (int band = 0; band < 3; ++band) {
-            slot.smoothedTransmission[band] +=
-                slotDirectAlpha * (rawTransmission[band] - slot.smoothedTransmission[band]);
-            slot.smoothedReverbTimes[band] +=
-                slotReverbAlpha * (rawReverbTimes[band] - slot.smoothedReverbTimes[band]);
-        }
-
-        params.distanceAttenuation = slot.smoothedDistanceAttenuation;
-        params.occlusion = slot.smoothedOcclusion;
-        params.transmission[0] = slot.smoothedTransmission[0];
-        params.transmission[1] = slot.smoothedTransmission[1];
-        params.transmission[2] = slot.smoothedTransmission[2];
-        params.reverbTimes[0] = slot.smoothedReverbTimes[0];
-        params.reverbTimes[1] = slot.smoothedReverbTimes[1];
-        params.reverbTimes[2] = slot.smoothedReverbTimes[2];
-        // Small epsilon (not >0) so a decaying tail keeps rendering instead of gating off abruptly.
-        params.reflectionsActive = sceneReady_
-            && (params.reverbTimes[0] > 1.0e-3f || params.reverbTimes[1] > 1.0e-3f
-                || params.reverbTimes[2] > 1.0e-3f);
-
-        params.active = true;
-        renderParams_[static_cast<std::size_t>(i)] = params;
+        refreshSlotUnlocked(i, directAlpha, reverbAlpha);
     }
+}
+
+void SteamAudioRuntime::setSourceInputsUnlocked(const Slot& slot) {
+    IPLSimulationInputs inputs{};
+    inputs.flags = IPL_SIMULATIONFLAGS_DIRECT;
+    inputs.directFlags = static_cast<IPLDirectSimulationFlags>(
+        IPL_DIRECTSIMULATIONFLAGS_OCCLUSION | IPL_DIRECTSIMULATIONFLAGS_TRANSMISSION);
+    inputs.source = makeCoords(slot.x, slot.y, slot.z, 0.0f, 0.0f, -1.0f, 0.0f, 1.0f, 0.0f);
+    inputs.occlusionType = IPL_OCCLUSIONTYPE_RAYCAST;
+    inputs.numTransmissionRays = 1;
+    inputs.baked = IPL_FALSE;
+    iplSourceSetInputs(slot.source, IPL_SIMULATIONFLAGS_DIRECT, &inputs);
+}
+
+void SteamAudioRuntime::refreshSlotUnlocked(int index, float directAlpha, float reverbAlpha) {
+    Slot& slot = slots_[static_cast<std::size_t>(index)];
+    SteamAudioSlotRenderParams params{};
+    if (!slot.used || slot.source == nullptr) {
+        renderParams_[static_cast<std::size_t>(index)] = params;
+        return;
+    }
+
+    IPLSimulationOutputs outputs{};
+    iplSourceGetOutputs(slot.source, IPL_SIMULATIONFLAGS_DIRECT, &outputs);
+
+    const IPLVector3 relativeDir = iplCalculateRelativeDirection(
+        context_,
+        IPLVector3{slot.x, slot.y, slot.z},
+        IPLVector3{lastListener_.posX, lastListener_.posY, lastListener_.posZ},
+        IPLVector3{lastListener_.aheadX, lastListener_.aheadY, lastListener_.aheadZ},
+        IPLVector3{lastListener_.upX, lastListener_.upY, lastListener_.upZ});
+    params.dirX = relativeDir.x;
+    params.dirY = relativeDir.y;
+    params.dirZ = relativeDir.z;
+
+    const float rawDistanceAttenuation =
+        distanceAttenuation(slot.x, slot.y, slot.z, slot.minDistance);
+    const float rawOcclusion = sceneReady_ ? outputs.direct.occlusion : 1.0f;
+    const float rawTransmission[3] = {
+        outputs.direct.transmission[0],
+        outputs.direct.transmission[1],
+        outputs.direct.transmission[2],
+    };
+    const float rawReverbTimes[3] = {
+        sceneReady_ ? reverbTimes_[0] : 0.0f,
+        sceneReady_ ? reverbTimes_[1] : 0.0f,
+        sceneReady_ ? reverbTimes_[2] : 0.0f,
+    };
+
+    // Raw simulation outputs are recomputed from scratch every call: raycast occlusion can
+    // flip instantly as the source/listener cross an edge, and the Monte Carlo reflection
+    // estimate carries sampling noise even for a static scene. Smooth both toward the target
+    // over time so occlusion transitions and reverb tails don't zipper/click.
+    const float slotDirectAlpha = slot.smoothingInit ? directAlpha : 1.0f;
+    const float slotReverbAlpha = slot.smoothingInit ? reverbAlpha : 1.0f;
+    slot.smoothingInit = true;
+
+    slot.smoothedDistanceAttenuation +=
+        slotDirectAlpha * (rawDistanceAttenuation - slot.smoothedDistanceAttenuation);
+    slot.smoothedOcclusion += slotDirectAlpha * (rawOcclusion - slot.smoothedOcclusion);
+    for (int band = 0; band < 3; ++band) {
+        slot.smoothedTransmission[band] +=
+            slotDirectAlpha * (rawTransmission[band] - slot.smoothedTransmission[band]);
+        slot.smoothedReverbTimes[band] +=
+            slotReverbAlpha * (rawReverbTimes[band] - slot.smoothedReverbTimes[band]);
+    }
+
+    params.distanceAttenuation = slot.smoothedDistanceAttenuation;
+    params.occlusion = slot.smoothedOcclusion;
+    params.transmission[0] = slot.smoothedTransmission[0];
+    params.transmission[1] = slot.smoothedTransmission[1];
+    params.transmission[2] = slot.smoothedTransmission[2];
+    params.reverbTimes[0] = slot.smoothedReverbTimes[0];
+    params.reverbTimes[1] = slot.smoothedReverbTimes[1];
+    params.reverbTimes[2] = slot.smoothedReverbTimes[2];
+    // Small epsilon (not >0) so a decaying tail keeps rendering instead of gating off abruptly.
+    params.reflectionsActive = sceneReady_
+        && (params.reverbTimes[0] > 1.0e-3f || params.reverbTimes[1] > 1.0e-3f
+            || params.reverbTimes[2] > 1.0e-3f);
+
+    params.active = true;
+    renderParams_[static_cast<std::size_t>(index)] = params;
+}
+
+std::unique_ptr<SteamAudioVoiceEffects> SteamAudioRuntime::createEffects() {
+    auto effects = std::make_unique<SteamAudioVoiceEffects>();
+    const int frameSize = audioSettings_.frameSize;
+
+    IPLDirectEffectSettings directSettings{};
+    directSettings.numChannels = 1;
+    IPLBinauralEffectSettings binauralSettings{};
+    binauralSettings.hrtf = hrtf_;
+    IPLReflectionEffectSettings reflectionSettings{};
+    reflectionSettings.type = IPL_REFLECTIONEFFECTTYPE_PARAMETRIC;
+    reflectionSettings.numChannels = 1;
+    reflectionSettings.irSize = std::max(
+        frameSize,
+        static_cast<int>(static_cast<float>(audioSettings_.samplingRate) * kMaxReflectionDuration));
+
+    const bool ok =
+        iplDirectEffectCreate(context_, &audioSettings_, &directSettings, &effects->direct)
+            == IPL_STATUS_SUCCESS
+        && iplBinauralEffectCreate(context_, &audioSettings_, &binauralSettings, &effects->binaural)
+            == IPL_STATUS_SUCCESS
+        && iplReflectionEffectCreate(
+               context_, &audioSettings_, &reflectionSettings, &effects->reflection)
+            == IPL_STATUS_SUCCESS
+        && iplAudioBufferAllocate(context_, 1, frameSize, &effects->monoIn) == IPL_STATUS_SUCCESS
+        && iplAudioBufferAllocate(context_, 1, frameSize, &effects->monoDirect)
+            == IPL_STATUS_SUCCESS
+        && iplAudioBufferAllocate(context_, 1, frameSize, &effects->monoWet) == IPL_STATUS_SUCCESS
+        && iplAudioBufferAllocate(context_, 2, frameSize, &effects->stereoOut)
+            == IPL_STATUS_SUCCESS;
+    if (!ok) {
+        TraceLog(LOG_WARNING, "STEAM AUDIO: failed to create voice effects");
+        destroyEffects(*effects);
+        return nullptr;
+    }
+    return effects;
+}
+
+void SteamAudioRuntime::destroyEffects(SteamAudioVoiceEffects& effects) {
+    if (context_ == nullptr) {
+        effects = SteamAudioVoiceEffects{};
+        return;
+    }
+    for (IPLAudioBuffer* buffer :
+         {&effects.monoIn, &effects.monoDirect, &effects.monoWet, &effects.stereoOut}) {
+        if (buffer->data != nullptr) {
+            iplAudioBufferFree(context_, buffer);
+        }
+    }
+    if (effects.direct != nullptr) {
+        iplDirectEffectRelease(&effects.direct);
+    }
+    if (effects.binaural != nullptr) {
+        iplBinauralEffectRelease(&effects.binaural);
+    }
+    if (effects.reflection != nullptr) {
+        iplReflectionEffectRelease(&effects.reflection);
+    }
+    effects = SteamAudioVoiceEffects{};
+}
+
+std::unique_ptr<SteamAudioVoiceEffects> SteamAudioRuntime::acquireEffects() {
+    if (context_ == nullptr || hrtf_ == nullptr) {
+        return nullptr;
+    }
+    std::unique_ptr<SteamAudioVoiceEffects> effects;
+    bool needsReset = false;
+    {
+        std::lock_guard<std::mutex> lock(poolMutex_);
+        if (!cleanEffects_.empty()) {
+            effects = std::move(cleanEffects_.back());
+            cleanEffects_.pop_back();
+        } else if (!dirtyEffects_.empty()) {
+            effects = std::move(dirtyEffects_.back());
+            dirtyEffects_.pop_back();
+            needsReset = true;
+        }
+    }
+    if (effects == nullptr) {
+        return createEffects();
+    }
+    if (needsReset) {
+        iplDirectEffectReset(effects->direct);
+        iplBinauralEffectReset(effects->binaural);
+        iplReflectionEffectReset(effects->reflection);
+    }
+    return effects;
+}
+
+void SteamAudioRuntime::recycleEffects(std::unique_ptr<SteamAudioVoiceEffects> effects) {
+    if (effects == nullptr) {
+        return;
+    }
+    if (context_ == nullptr) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(poolMutex_);
+    dirtyEffects_.push_back(std::move(effects));
+}
+
+void SteamAudioRuntime::resetRecycledEffects() {
+    {
+        std::lock_guard<std::mutex> lock(poolMutex_);
+        if (dirtyEffects_.empty()) {
+            return;
+        }
+        resettingEffects_.swap(dirtyEffects_);
+    }
+    for (std::unique_ptr<SteamAudioVoiceEffects>& effects : resettingEffects_) {
+        iplDirectEffectReset(effects->direct);
+        iplBinauralEffectReset(effects->binaural);
+        iplReflectionEffectReset(effects->reflection);
+    }
+    std::lock_guard<std::mutex> lock(poolMutex_);
+    for (std::unique_ptr<SteamAudioVoiceEffects>& effects : resettingEffects_) {
+        cleanEffects_.push_back(std::move(effects));
+    }
+    resettingEffects_.clear();
 }
 
 void SteamAudioRuntime::applyOcclusionGains(SoLoud::Soloud& soloud) {

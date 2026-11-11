@@ -347,6 +347,9 @@ bool pointStrictlyInsideBrush(Vector3 point, const Brush& brush, float epsilon =
         if (face.vertices.empty()) {
             return false;
         }
+        if (length3(face.normal) < 1e-6f) {
+            continue;
+        }
         const float side = dot3(sub3(point, face.vertices[0]), face.normal);
         if (side >= -epsilon) {
             return false;
@@ -369,7 +372,7 @@ bool centroidInsideSealing(
             continue;
         }
         inside = true;
-        if (brush.role == BrushRole::Window) {
+        if (brush.role == BrushRole::Window || brush.role == BrushRole::Transparent) {
             preferGlass = true;
             preferDoor = false;
         } else if (brush.role == BrushRole::Door) {
@@ -409,7 +412,7 @@ CellClassification classifyAgainstSealing(
                 continue;
             }
             inside = true;
-            if (brush.role == BrushRole::Window) {
+            if (brush.role == BrushRole::Window || brush.role == BrushRole::Transparent) {
                 glassInside = true;
             } else if (brush.role == BrushRole::Door) {
                 doorInside = true;
@@ -533,6 +536,16 @@ struct SplitPlane {
     // would mark the plane "relevant" across the dead space between them,
     // including exterior void far from either brush.
     std::vector<SplitPlaneBounds> contributors;
+    std::vector<std::string> sources;
+    std::vector<std::vector<Vector3>> polygons;
+    bool polygonsOverflow = false;
+};
+
+constexpr std::size_t kMaxSplitPlanePolygons = 64;
+constexpr float kMinSplitFaceArea = 1e-6f;
+
+struct BuildStats {
+    std::vector<int> splitNodes;
 };
 
 SplitScore scoreSplitPlane(const BspPlane& plane, const Polyhedron& poly) {
@@ -639,6 +652,52 @@ bool planeCutsPolyhedron(const BspPlane& plane, const Polyhedron& poly) {
     return false;
 }
 
+Vector3 newellNormal(const std::vector<Vector3>& polygon) {
+    Vector3 n{};
+    for (std::size_t i = 0; i < polygon.size(); ++i) {
+        const Vector3& a = polygon[i];
+        const Vector3& b = polygon[(i + 1) % polygon.size()];
+        n.x += (a.y - b.y) * (a.z + b.z);
+        n.y += (a.z - b.z) * (a.x + b.x);
+        n.z += (a.x - b.x) * (a.y + b.y);
+    }
+    return n;
+}
+
+std::vector<BspPlane> boundsOutwardPlanes(Vector3 mins, Vector3 maxs) {
+    return {
+        BspPlane{{1.0f, 0.0f, 0.0f}, maxs.x},
+        BspPlane{{-1.0f, 0.0f, 0.0f}, -mins.x},
+        BspPlane{{0.0f, 1.0f, 0.0f}, maxs.y},
+        BspPlane{{0.0f, -1.0f, 0.0f}, -mins.y},
+        BspPlane{{0.0f, 0.0f, 1.0f}, maxs.z},
+        BspPlane{{0.0f, 0.0f, -1.0f}, -mins.z},
+    };
+}
+
+bool polygonReachesCell(const std::vector<Vector3>& polygon, const std::vector<BspPlane>& cellPlanes) {
+    std::vector<Vector3> subject = polygon;
+    for (const BspPlane& plane : cellPlanes) {
+        subject = clipPolygonAgainstPlane(subject, plane, false);
+        if (subject.size() < 3) {
+            return false;
+        }
+    }
+    return length3(newellNormal(subject)) * 0.5f > kMinSplitFaceArea;
+}
+
+bool splitFacePresentInCell(const SplitPlane& split, const std::vector<BspPlane>& cellPlanes) {
+    if (split.polygonsOverflow || split.polygons.empty()) {
+        return true;
+    }
+    for (const std::vector<Vector3>& polygon : split.polygons) {
+        if (polygonReachesCell(polygon, cellPlanes)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // Cap on SplitPlane::contributors so the O(k) scan in splitPlaneRelevantToCell
 // stays cheap even for a plane shared by an unbounded number of disjoint
 // brushes (e.g. a pathological map with hundreds of unrelated same-height
@@ -700,12 +759,26 @@ void mergeContributorBounds(
     }
 }
 
+void addSplitPolygon(SplitPlane& split, const std::vector<Vector3>& polygon) {
+    if (split.polygonsOverflow || polygon.size() < 3) {
+        return;
+    }
+    if (split.polygons.size() >= kMaxSplitPlanePolygons) {
+        split.polygonsOverflow = true;
+        split.polygons.clear();
+        return;
+    }
+    split.polygons.push_back(polygon);
+}
+
 void addUniqueSplit(
     std::vector<SplitPlane>& out,
     const BspPlane& plane,
     bool hintOnly,
     Vector3 brushMins,
-    Vector3 brushMaxs) {
+    Vector3 brushMaxs,
+    const std::string& sourceId,
+    const std::vector<Vector3>& polygon) {
     if (length3(plane.normal) < 1e-6f) {
         return;
     }
@@ -715,10 +788,16 @@ void addUniqueSplit(
                 existing.hintOnly = false;
             }
             mergeContributorBounds(existing.contributors, brushMins, brushMaxs);
+            if (existing.sources.size() < 4 &&
+                std::find(existing.sources.begin(), existing.sources.end(), sourceId) == existing.sources.end()) {
+                existing.sources.push_back(sourceId);
+            }
+            addSplitPolygon(existing, polygon);
             return;
         }
     }
-    out.push_back(SplitPlane{plane, hintOnly, {SplitPlaneBounds{brushMins, brushMaxs}}});
+    out.push_back(SplitPlane{plane, hintOnly, {SplitPlaneBounds{brushMins, brushMaxs}}, {sourceId}});
+    addSplitPolygon(out.back(), polygon);
 }
 
 void collectSplits(const std::vector<Brush>& brushes, std::vector<SplitPlane>& out) {
@@ -729,7 +808,7 @@ void collectSplits(const std::vector<Brush>& brushes, std::vector<SplitPlane>& o
         }
         const bool hintOnly = brush.role == BrushRole::Hint;
         for (const BrushFace& face : brush.faces) {
-            addUniqueSplit(out, planeFromFace(face), hintOnly, brush.mins, brush.maxs);
+            addUniqueSplit(out, planeFromFace(face), hintOnly, brush.mins, brush.maxs, brush.id, face.vertices);
         }
     }
 }
@@ -751,12 +830,68 @@ bool splitPlaneRelevantToCell(const SplitPlane& split, const Polyhedron& poly) {
     return false;
 }
 
+void logSplitStats(const std::vector<SplitPlane>& splits, const BuildStats& stats, const BspTree& tree) {
+    std::vector<std::size_t> order;
+    int usedPlanes = 0;
+    int usedOnce = 0;
+    for (std::size_t i = 0; i < splits.size(); ++i) {
+        if (stats.splitNodes[i] > 0) {
+            ++usedPlanes;
+            if (stats.splitNodes[i] == 1) {
+                ++usedOnce;
+            }
+            order.push_back(i);
+        }
+    }
+    std::sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) {
+        return stats.splitNodes[a] > stats.splitNodes[b];
+    });
+    int solidLeaves = 0;
+    for (const BspLeaf& leaf : tree.leaves) {
+        if ((leaf.contents & BspContents::Solid) != 0) {
+            ++solidLeaves;
+        }
+    }
+    TraceLog(
+        LOG_INFO,
+        "BSP: split stats: candidates=%d used=%d usedOnce=%d solidLeaves=%d openLeaves=%d",
+        static_cast<int>(splits.size()),
+        usedPlanes,
+        usedOnce,
+        solidLeaves,
+        static_cast<int>(tree.leaves.size()) - solidLeaves);
+    const std::size_t shown = std::min<std::size_t>(order.size(), 30);
+    for (std::size_t k = 0; k < shown; ++k) {
+        const SplitPlane& split = splits[order[k]];
+        std::string sources;
+        for (const std::string& id : split.sources) {
+            if (!sources.empty()) {
+                sources += ',';
+            }
+            sources += id;
+        }
+        TraceLog(
+            LOG_DEBUG,
+            "BSP: split #%d nodes=%d n=(%.2f %.2f %.2f) d=%.2f contributors=%d sources=%s",
+            static_cast<int>(k),
+            stats.splitNodes[order[k]],
+            static_cast<double>(split.plane.normal.x),
+            static_cast<double>(split.plane.normal.y),
+            static_cast<double>(split.plane.normal.z),
+            static_cast<double>(split.plane.distance),
+            static_cast<int>(split.contributors.size()),
+            sources.c_str());
+    }
+}
+
 std::int32_t buildNode(
     BspTree& tree,
     const Polyhedron& poly,
     const BuildBrushes& brushes,
     const std::vector<SplitPlane>& splits,
-    std::vector<std::uint8_t>& used) {
+    std::vector<std::uint8_t>& used,
+    BuildStats& stats,
+    std::vector<BspPlane>& cellPlanes) {
     const CellClassification classification = classifyAgainstSealing(poly, brushes.sealing);
     if (classification.cell == CellClass::WhollySolid) {
         std::uint32_t contents = BspContents::Solid;
@@ -780,6 +915,9 @@ std::int32_t buildNode(
             continue;
         }
         if (!planeCutsPolyhedron(splits[pi].plane, poly)) {
+            continue;
+        }
+        if (!splitFacePresentInCell(splits[pi], cellPlanes)) {
             continue;
         }
         const SplitScore ss = scoreSplitPlane(splits[pi].plane, poly);
@@ -808,12 +946,18 @@ std::int32_t buildNode(
     }
 
     used[chosenIndex] = 1;
+    if (chosenIndex < stats.splitNodes.size()) {
+        ++stats.splitNodes[chosenIndex];
+    }
 
     const std::int32_t nodeIndex = static_cast<std::int32_t>(tree.nodes.size());
     tree.nodes.push_back({});
 
-    const std::int32_t front = buildNode(tree, frontPoly, brushes, splits, used);
-    const std::int32_t back = buildNode(tree, backPoly, brushes, splits, used);
+    cellPlanes.push_back(BspPlane{scale3(chosen.normal, -1.0f), -chosen.distance});
+    const std::int32_t front = buildNode(tree, frontPoly, brushes, splits, used, stats, cellPlanes);
+    cellPlanes.back() = chosen;
+    const std::int32_t back = buildNode(tree, backPoly, brushes, splits, used, stats, cellPlanes);
+    cellPlanes.pop_back();
 
     used[chosenIndex] = 0;
 
@@ -936,6 +1080,22 @@ static bool portalConnectsLeaves(
     return (l0 == leafA && l1 == leafB) || (l0 == leafB && l1 == leafA);
 }
 
+constexpr float kMinPortalWidth = 2e-3f;
+
+bool portalWideEnough(const std::vector<Vector3>& portal) {
+    if (portal.size() < 3) {
+        return false;
+    }
+    float perimeter = 0.0f;
+    for (std::size_t i = 0; i < portal.size(); ++i) {
+        perimeter += length3(sub3(portal[(i + 1) % portal.size()], portal[i]));
+    }
+    if (perimeter <= 1e-8f) {
+        return false;
+    }
+    return 2.0f * polygonArea(portal) / perimeter >= kMinPortalWidth;
+}
+
 static bool tryMakePortal(
     const BspTree& tree,
     std::int32_t leafA,
@@ -957,10 +1117,10 @@ static bool tryMakePortal(
                 continue;
             }
             std::vector<Vector3> portal = intersectPortal(fa, fb, na);
-            if (portal.size() < 3) {
+            if (!portalWideEnough(portal)) {
                 portal = intersectPortal(fb, fa, nb);
             }
-            if (portal.size() < 3) {
+            if (!portalWideEnough(portal)) {
                 continue;
             }
             if (!portalConnectsLeaves(tree, leafA, leafB, portal, na)) {
@@ -1439,11 +1599,59 @@ BspTree buildBspFromHullBrushes(
 
     const Polyhedron world = makeBoundsPolyhedron(mins, maxs);
     std::vector<std::uint8_t> used(splits.size(), 0);
+    BuildStats stats{};
+    stats.splitNodes.assign(splits.size(), 0);
     TraceLog(LOG_INFO, "BSP: building nodes...");
-    tree.root = buildNode(tree, world, buildBrushes, splits, used);
+    std::vector<BspPlane> cellPlanes = boundsOutwardPlanes(mins, maxs);
+    tree.root = buildNode(tree, world, buildBrushes, splits, used, stats, cellPlanes);
     TraceLog(LOG_INFO, "BSP: nodes=%d leaves=%d", static_cast<int>(tree.nodes.size()), static_cast<int>(tree.leaves.size()));
-    TraceLog(LOG_INFO, "BSP: building adjacency...");
-    buildAdjacency(tree);
+    logSplitStats(splits, stats, tree);
+    {
+        int holes = 0;
+        for (const Brush& brush : buildBrushes.sealing) {
+            for (const BrushFace& face : brush.faces) {
+                if (face.vertices.size() < 3 || length3(face.normal) < 1e-6f) {
+                    continue;
+                }
+                Vector3 center{};
+                for (const Vector3& v : face.vertices) {
+                    center = add3(center, v);
+                }
+                center = scale3(center, 1.0f / static_cast<float>(face.vertices.size()));
+                for (float depth : {0.01f, 0.05f, 0.2f}) {
+                    const Vector3 sample = sub3(center, scale3(face.normal, depth));
+                    if (!pointStrictlyInsideBrush(sample, brush)) {
+                        continue;
+                    }
+                    const std::int32_t leaf = pointLeaf(tree, sample);
+                    if (leaf < 0) {
+                        continue;
+                    }
+                    const std::uint32_t contents = tree.leaves[static_cast<std::size_t>(leaf)].contents;
+                    if (!leafBlocksFlood(contents)) {
+                        if (holes < 20) {
+                            TraceLog(
+                                LOG_WARNING,
+                                "BSP: hole in sealing brush '%s' face '%s' at (%.2f %.2f %.2f) depth %.2f leaf %d contents=%u",
+                                brush.id.c_str(),
+                                face.id.c_str(),
+                                static_cast<double>(sample.x),
+                                static_cast<double>(sample.y),
+                                static_cast<double>(sample.z),
+                                static_cast<double>(depth),
+                                leaf,
+                                contents);
+                        }
+                        ++holes;
+                    }
+                    break;
+                }
+            }
+        }
+        if (holes > 0) {
+            TraceLog(LOG_WARNING, "BSP: %d sealing face(s) with open space behind them", holes);
+        }
+    }
 
     std::vector<std::uint8_t> exteriorFlood;
     floodExteriorLeaves(tree, exteriorFlood);

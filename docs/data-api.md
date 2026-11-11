@@ -15,6 +15,8 @@ All package data files should be placed in the `data/` directory of your package
 - `view.s7` - View canvas configuration
 - `cli.s7` - CLI flags
 - `title.s7` - Title screen layers
+- `net.s7` - Declared player, session and thing state
+- `motor.s7` - Movement rules that clients predict
 
 # Actions {#actions}
 
@@ -53,10 +55,12 @@ Map handlers define event handlers for map interactions. These are used to creat
 
 Symbols `*package-things*` and `*package-thing-folders*`
 
-Thing templates are the props, pickups, and actors that map authors can place from `slopmap` or `slopsprite`. Each entry needs an id and a `kind` of `prop`, `pickup`, or `actor`; which other keys apply depends on the kind.
+Thing templates are the props, pickups, and actors that map authors can place from `slopmap` or `slopsprite`. Each entry needs an id and a `kind` of `prop`, `pickup`, `actor` or `marker`; which other keys apply depends on the kind. A `marker` has no presentation and marks a place, such as a deathmatch start, that scripts find with `map-things`.
 
 - `label`, `icon`, `path` - browser presentation; `path` groups the thing under a folder declared in `*package-thing-folders*`
-- `sprite` or `geo`, `frame`, `anim` - the graphic to show; a pickup requires exactly one of `sprite` or `geo`
+- `sprite` or `geo`, `frame`, `anim`, `anims` - the graphic to show; a pickup requires exactly one of `sprite` or `geo`. On a sprite `anim` names a `.spanim` clip. On a skinned geo it names a clip in the animation bank at the geo's skeleton path (`animations/<skeleton>.anim`), and `anims` points at a different bank when the clips live elsewhere
+- `bone-scales` - proportions for a skinned geo, as `("bone" size [length])` entries such as `(bone-scales ("head" 1.3) ("forearm.L" 1 1.2))`. They apply on top of every clip and can be changed at runtime with `actor-set-bone-scale!`, which describes what size and length do
+- `collision` - static boxes in the thing's local space, as `(box x0 y0 z0 x1 y1 z1)` corner pairs such as `(collision (box -0.3 0 -0.5 0.3 0.4 0))`. They follow the placement's position, yaw and scale. Ragdolls and loose debris land on them, while characters, the player, linescans and sight pass through
 - `motor (radius ...) (height ...) (speed ...) (gravity ...) (step-height ...) (hover-height ...) (max-fall ...) (water-aversion ...) (hull box|capsule|sphere) (move try-move|slide|fly) (nav-profile ...)` - a physics-driven movement capsule; implied for `actor`, optional for the others. `nav-profile` names a baked nav profile (see the nav-profile catalog) for this thing's capsule size to path against instead of the auto-matched one
 - `tags` - a list of string tags, matched against `see-tags`/`ignore-tags` on other things and used by handlers
 - `on-enter`, `on-use` - handler bindings from the map handler catalog; a pickup requires at least one
@@ -188,3 +192,61 @@ Title screen configuration defines the background shown behind the title screen.
   '((map "test")
     (canvas 320 240)))
 </code></pre>
+
+# Net state {#net-state}
+
+Symbols `*net-state*`, `*net-events*` and `*net-extension*`
+
+Net state declares the game state the engine stores for each player, for the session and for things with a given tag. Each field has a type, a default and options for who receives it, whether it travels with a player and whether saves keep it. Scripts read and write the fields with `net-get` and `net-set!` (see @ref scriptingapi). Only the base package's `*net-extension*` is read. It sets how many fields mods may add per scope, and mod fields are named after their package, such as `staminamod/stamina`. The format, the types and the reasoning are described in @ref networking_design.
+
+<pre><code class="language-scheme">(define *net-state*
+  '((player
+     (health (type int 0 999) (default 100) (send all) (travel \#t))
+     (weapon-owned (type (list bool 7)) (default (\#t \#t \#t \#t \#t \#t \#t)) (send owner) (travel \#t)))
+    (session
+     (picked-things (type (list (string 64) 4096)) (default ()) (send none) (save \#t)))))
+
+(define *net-extension*
+  '((player (fields 8) (bytes 32))
+    (session (fields 4) (bytes 16))))
+</code></pre>
+
+Player fields not marked `travel` go back to their defaults on every map load. Session fields and travel fields keep their values until a script changes them or calls `net-reset!`.
+
+`*net-events*` declares one-shot events such as sounds and effects. Each has typed arguments, an audience, a reliable flag and a predict flag. Scripts raise them with `net-event!` and handle them in `on-event-NAME` procedures. An event with `(predict \#t)` can also be raised by a client's `predict` hook for its own player, see @ref networking. `*net-extension*` can give mods an `(events (count n) (bytes n))` budget.
+
+<pre><code class="language-scheme">(define *net-events*
+  '((sound-3d (args (path (string 64))) (to (near 80)))
+    (blast (args (radius float)) (to (near 150)) (reliable \#t))))
+
+(define (on-event-blast where radius)
+  (particle-spawn "blast" (car where) (cadr where) (caddr where) "fx/explosion"))
+</code></pre>
+
+# Motor rules {#motor-rules}
+
+Symbol `*motor-rules*`
+
+Motor rules change a player's movement from their input, such as a sprint that speeds them up while a key is held or a jump that launches them when a key is pressed on the ground. The engine runs them every tick as part of movement, on the server and in a client's prediction alike, so a client sees its own sprint or jump at once instead of a round trip later. Only the base package's file is read, and the rules count toward the declared state, so a client with different rules is turned away at connect. The engine knows no rule by name.
+
+<pre><code class="language-scheme">(define *motor-rules*
+  '((crouch (action "Descend") (hold) (when (or active grounded)) (shape 0.3 0.55 1.0))
+    (sprint (action "sprint") (hold) (when forward (or active grounded) (not (rule crouch))) (speed 1.6))
+    (jump (action "Jump") (press) (when grounded (not (rule crouch))) (launch 7.7))))
+</code></pre>
+
+Each rule has a name and these properties.
+
+Property|Meaning
+-|-
+`(action id)`|The action that drives the rule, a core one such as `"Jump"` or one from `*package-actions*`
+`(hold)`|The rule is active on every tick the action is held, the default
+`(press)`|The rule is active on the tick the action is pressed
+`(when condition ...)`|Every condition must hold
+`(speed scale)`|Multiplies move speed while the rule is active, above 0 and at most 10
+`(launch speed)`|Sets the upward speed on the tick the rule becomes active, above 0 and at most 100
+`(shape radius height eye)`|Gives the player this collider and eye height while the rule is active
+
+A condition is `grounded`, `airborne`, `forward` for moving forward, `active` for this rule having been active on the previous tick, `(rule name)` for another rule having been active then, or `(not c)`, `(and c ...)` and `(or c ...)`. A game holds at most 32 rules. No rule is active while the player can't move, except that a rule with a shape keeps it until the player can move again.
+
+When a rule with a shape becomes active the engine remembers the collider and eye height the player had, and gives them back when the rule ends. A rule whose shape doesn't fit where the player stands doesn't become active, and one that ends where the remembered shape doesn't fit, such as under a low ceiling, stays active until there is room. Only one rule with a shape is active at a time. Scripts switch rules off and on with `motor-rule-enable!`, for example while crouching or dead, and check them with `motor-rule-active?` (see @ref motor-rule-api).

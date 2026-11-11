@@ -8,3 +8,4 @@ CMakeUserPresets.json
 *.blend1
 imgui.ini
 packages/*/maps/*/compiled/
+__pycache__/

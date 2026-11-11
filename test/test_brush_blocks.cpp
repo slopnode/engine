@@ -10,6 +10,12 @@ namespace slopengine {
 void runBrushBlocksTests() {
     CHECK_EQ(brushRoleDefaultBlocks(BrushRole::Hull), BrushBlock::All);
     CHECK_EQ(brushRoleDefaultBlocks(BrushRole::Hint), 0u);
+    CHECK_EQ(
+        brushRoleDefaultBlocks(BrushRole::Window),
+        static_cast<std::uint8_t>(BrushBlock::All & ~BrushBlock::Los));
+    CHECK_EQ(
+        brushRoleDefaultBlocks(BrushRole::Transparent),
+        static_cast<std::uint8_t>(BrushBlock::All & ~BrushBlock::Los));
     CHECK(brushRoleDefaultNocollide(BrushRole::Water));
     CHECK_FALSE(brushRoleDefaultNocollide(BrushRole::Hull));
     CHECK_FALSE(brushBlocksAny(0));

@@ -21,10 +21,12 @@ int compareSemVer(const SemVer& a, const SemVer& b);
 /**
  * Checks whether @p version satisfies @p constraint.
  *
- * @p constraint is a version optionally prefixed with an operator: "=",
- * ">=", ">", "<=", "<" (no prefix means "="), e.g. ">=0.4.0". An empty
- * constraint always satisfies. Returns false if @p version or the
- * constraint's version cannot be parsed as a SemVer.
+ * @p constraint is one or more clauses separated by whitespace or commas,
+ * all of which must hold. Each clause is a version optionally prefixed with
+ * an operator: "=", ">=", ">", "<=", "<" (no prefix means "="), e.g.
+ * ">=0.4.0" or ">=0.9.0 <0.10.0". An empty constraint always satisfies.
+ * Returns false if @p version or any clause's version cannot be parsed as a
+ * SemVer.
  */
 bool satisfiesVersionConstraint(std::string_view version, std::string_view constraint);
 

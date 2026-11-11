@@ -1,6 +1,6 @@
 @page rad (.rad) Radiosity
 
-Magic 0x31444152 (RAD1), version 6 (readable back to version 2).
+Magic 0x31444152 (RAD1), version 7 (readable back to version 2).
 
 Atlas pixels are not embedded; they are separate PNGs alongside this file under compiled/rad/ (for example atlas0.png). Face ids match authored brush face ids. Strings in this file are inline length-prefixed (no trailing string table).
 
@@ -9,7 +9,7 @@ Atlas pixels are not embedded; they are separate PNGs alongside this file under 
 | Field | Type | Notes |
 |-------|------|-------|
 | magic | u32 | 0x31444152 |
-| version | u32 | 6 (or 5, 4, 3, 2) |
+| version | u32 | 7 (or 6, 5, 4, 3, 2) |
 | luxelsPerMeter | f32 | Nominal bake density |
 
 # Atlases {#atlases}
@@ -73,11 +73,12 @@ Each probe:
 | cellX | i32 | Grid cell coordinate |
 | cellY | i32 |  |
 | cellZ | i32 |  |
-| shRgbe | Color[4] | 4× RGBA8, spherical-harmonics L1 coefficients (DC + 3 directional) each RGBE8-encoded per [encodeRgbe](#encodergbe) |
+| cubeRgbe | Color[6] | Version 7: 6× RGBA8 ambient cube, the irradiance a surface facing +X, -X, +Y, -Y, +Z, -Z receives, each RGBE8-encoded per [encodeRgbe](#encodergbe) |
+| shRgbe | Color[4] | Versions 5 and 6 instead: 4× RGBA8 spherical-harmonics L1 coefficients (DC + 3 directional). Converted to an ambient cube on load, with light from the negative axes lost |
 
 ## RGBE8 encoding {#encodergbe}
 
-Ward-style shared-exponent encoding used for both HDR atlas texels (encoding = Rgbe) and probe SH coefficients: RGB channels are `trunc(clamp(component * 256 * 2^-exponent, 0, 255))`, and the alpha channel stores `exponent + 128`, where `exponent = floor(log2(max(r, g, b))) + 1`. Alpha 0 decodes to black.
+Ward-style shared-exponent encoding used for both HDR atlas texels (encoding = Rgbe) and probe colors: RGB channels are `trunc(clamp(component * 256 * 2^-exponent, 0, 255))`, and the alpha channel stores `exponent + 128`, where `exponent = floor(log2(max(r, g, b))) + 1`. Alpha 0 decodes to black.
 
 # Transparent alpha occlusion (sloprad) {#transparent-alpha-occlusion-sloprad}
 

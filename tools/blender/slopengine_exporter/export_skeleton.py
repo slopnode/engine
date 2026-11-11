@@ -95,7 +95,7 @@ def export_skeleton_asset(context, filepath, skeleton_id, scene_pose_locked=Fals
 
     def write_skeleton_files():
         for index, bone in enumerate(order):
-            translation, rotation, scale = bind_pose_transform(armature_obj, bone)
+            translation, rotation, scale = bind_pose_transform(armature_obj, bone, order)
             parent = bone_parent_index(bone, order)
             if parent == index:
                 result["warnings"].append(

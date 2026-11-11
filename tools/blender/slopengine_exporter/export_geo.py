@@ -1,4 +1,5 @@
 import os
+import re
 
 import bpy
 from bpy_extras.io_utils import ExportHelper
@@ -8,6 +9,7 @@ from .format_utils import (
     armature_from_mesh,
     bind_pose_context,
     bone_order,
+    bone_parented_attachments,
     build_vertex_weights,
     extract_material_parts,
     is_identity_transform,
@@ -62,6 +64,95 @@ class EXPORT_OT_slopengine_geo(bpy.types.Operator, ExportHelper):
         return {"FINISHED"}
 
 
+PRESERVED_BLOCKS = ("(view", "(attachments")
+ATTACHMENT_ENTRY = re.compile(
+    r'\(name "([^"]+)"\s+bone "([^"]+)"\s+position (\S+) (\S+) (\S+)\s+rotation (\S+) (\S+) (\S+)\s+scale (\S+)\s*\)'
+)
+
+
+def read_preserved_geo_blocks(filepath):
+    if not os.path.exists(filepath):
+        return []
+    with open(filepath, "r", encoding="utf-8") as file_obj:
+        lines = file_obj.read().splitlines()
+    preserved = []
+    depth = 0
+    for line in lines:
+        stripped = line.strip()
+        if depth == 0 and any(stripped.startswith(block) for block in PRESERVED_BLOCKS):
+            depth = 0
+        elif depth == 0:
+            continue
+        preserved.append(line)
+        depth += line.count("(") - line.count(")")
+        if depth <= 0:
+            depth = 0
+    return preserved
+
+
+def split_preserved_blocks(lines):
+    view, attachments = [], []
+    current = view
+    depth = 0
+    for line in lines:
+        if depth == 0:
+            current = attachments if line.strip().startswith("(attachments") else view
+        current.append(line)
+        depth = max(depth + line.count("(") - line.count(")"), 0)
+    return view, attachments
+
+
+def parse_attachments(lines):
+    return [
+        {
+            "name": match[1],
+            "bone": match[2],
+            "position": f"{match[3]} {match[4]} {match[5]}",
+            "rotation": f"{match[6]} {match[7]} {match[8]}",
+            "scale": match[9],
+        }
+        for match in ATTACHMENT_ENTRY.finditer("\n".join(lines))
+    ]
+
+
+def attachment_values(entry):
+    return [float(v) for v in f'{entry["position"]} {entry["rotation"]} {entry["scale"]}'.split()]
+
+
+def merge_attachments(existing, written):
+    merged = list(existing)
+    replaced = []
+    for entry in written:
+        index = next((i for i, old in enumerate(merged) if old["name"] == entry["name"]), None)
+        if index is None:
+            merged.append(entry)
+            continue
+        old = merged[index]
+        if old["bone"] != entry["bone"] or any(
+            abs(a - b) > 1e-3 for a, b in zip(attachment_values(old), attachment_values(entry))
+        ):
+            replaced.append(entry["name"])
+        merged[index] = entry
+    return merged, replaced
+
+
+def format_attachments(entries):
+    lines = ["  (attachments", "   ("]
+    for entry in entries:
+        lines.extend(
+            [
+                f'    (name "{entry["name"]}"',
+                f'     bone "{entry["bone"]}"',
+                f'     position {entry["position"]}',
+                f'     rotation {entry["rotation"]}',
+                f'     scale {entry["scale"]}',
+                "    )",
+            ]
+        )
+    lines.append("   ))")
+    return lines
+
+
 def export_geo_asset(context, filepath, skeleton_id, use_selection=True, scene_pose_locked=False):
     result = {
         "status": "FINISHED",
@@ -81,6 +172,7 @@ def export_geo_asset(context, filepath, skeleton_id, use_selection=True, scene_p
 
     output_dir = os.path.dirname(filepath)
     geo_basename = sanitize_name(os.path.splitext(os.path.basename(filepath))[0])
+    preserved_blocks = read_preserved_geo_blocks(filepath)
     vert_file = f"{geo_basename}.vert"
     weights_file = f"{geo_basename}.weights"
     skeleton_id = skeleton_id.strip()
@@ -176,6 +268,28 @@ def export_geo_asset(context, filepath, skeleton_id, use_selection=True, scene_p
             lines.append("  (weights implicit)")
         if skeleton_id:
             lines.append(f'  (skeleton "{sanitize_name(skeleton_id)}")')
+        view_lines, attachment_lines = split_preserved_blocks(preserved_blocks)
+        attachments = parse_attachments(attachment_lines)
+        unreadable = len(attachments) != sum(line.count("(name ") for line in attachment_lines)
+        if unreadable:
+            result["warnings"].append("Kept the attachments block as written; bone-parented objects were not exported into it")
+            view_lines = preserved_blocks
+            attachments = []
+        elif export_armature is not None:
+            written, attachment_warnings = bone_parented_attachments(export_armature, context.scene.objects)
+            result["warnings"].extend(attachment_warnings)
+            if written:
+                attachments, replaced = merge_attachments(attachments, written)
+                for name in replaced:
+                    result["warnings"].append(
+                        f"Attachment '{name}' in the .geo differed from its bone-parented object and was replaced"
+                    )
+                result["info"].append(
+                    f"Wrote attachment(s) {', '.join(entry['name'] for entry in written)} from bone-parented objects"
+                )
+        lines.extend(view_lines)
+        if attachments:
+            lines.extend(format_attachments(attachments))
         lines.append("  (primitives")
         lines.append("   (")
 
@@ -203,6 +317,9 @@ def export_geo_asset(context, filepath, skeleton_id, use_selection=True, scene_p
         result["info"].append(
             f"Baked object transforms for {baked_transform_count} mesh(es)"
         )
+
+    if preserved_blocks:
+        result["info"].append("Kept the view and attachment blocks of the existing .geo")
 
     result["info"].append(
         f"Exported {len(merged['primitives'])} primitive(s) to {filepath}"

@@ -75,7 +75,7 @@ struct LauncherState {
     void launch();
 
     /**
-     * Launches a sibling dev tool ("slopmap" / "slopsprite" / "slopthing" / "slopmat")
+     * Launches a sibling dev tool ("slopmap" / "slopsprite" / "slopthing" / "slopmat" / "slopmodel")
      * with --game/--mod/--target, mirroring how those tools are already
      * invoked by hand: --target must be baseGameId or one of modIds.
      */

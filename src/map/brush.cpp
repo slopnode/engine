@@ -321,6 +321,9 @@ bool pointInsideBrush(Vector3 point, const Brush& brush, float epsilon) {
         if (face.vertices.empty()) {
             return false;
         }
+        if (length3(face.normal) < 1e-6f) {
+            continue;
+        }
         const float side = dot3(sub3(point, face.vertices[0]), face.normal);
         if (side > epsilon) {
             return false;
@@ -333,6 +336,9 @@ bool pointInsideBrushInclusive(Vector3 point, const Brush& brush, float epsilon)
     for (const BrushFace& face : brush.faces) {
         if (face.vertices.empty()) {
             return false;
+        }
+        if (length3(face.normal) < 1e-6f) {
+            continue;
         }
         const float side = dot3(sub3(point, face.vertices[0]), face.normal);
         if (side > epsilon) {
@@ -668,9 +674,10 @@ std::uint8_t brushRoleDefaultBlocks(BrushRole role) {
     case BrushRole::Hull:
     case BrushRole::Detail:
     case BrushRole::Door:
+        return BrushBlock::All;
     case BrushRole::Window:
     case BrushRole::Transparent:
-        return BrushBlock::All;
+        return static_cast<std::uint8_t>(BrushBlock::All & ~BrushBlock::Los);
     }
     return 0;
 }

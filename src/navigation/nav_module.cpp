@@ -1,5 +1,6 @@
 #include "navigation/nav_module.hpp"
 
+#include "core/sim_clock.hpp"
 #include "game/game_state.hpp"
 #include "map/bsp.hpp"
 #include "map/nav_graph.hpp"
@@ -235,7 +236,7 @@ const NavFlowField& getOrBuildFlowField(
     float maxFall,
     float waterCostMultiplier) {
     NavFlowFieldCache& cache = world.get_mut<NavFlowFieldCache>();
-    const std::int64_t currentFrame = world.get_info()->frame_count_total;
+    const std::int64_t currentFrame = static_cast<std::int64_t>(world.get<SimClock>().tick);
 
     if (cache.lastSweepFrame != currentFrame) {
         for (auto it = cache.entries.begin(); it != cache.entries.end();) {
@@ -267,7 +268,7 @@ const NavFlowField& getOrBuildFlowField(
         rebuild(entry);
         it = cache.entries.emplace(key, std::move(entry)).first;
     } else if (it->second.refreshFrame != currentFrame) {
-        it->second.refreshTimer -= GetFrameTime();
+        it->second.refreshTimer -= kSimTickDt;
         it->second.refreshFrame = currentFrame;
         if (it->second.refreshTimer <= 0.0f) {
             rebuild(it->second);
@@ -282,7 +283,7 @@ bool goalMovedEnough(const NavigationAgent& agent, Vector3 goalPos) {
     if (!agent.haveLastGoalPos) {
         return true;
     }
-    return navHorizontalDist(agent.lastGoalPos, goalPos) >= agent.goalMoveThreshold;
+    return Vector3Distance(agent.lastGoalPos, goalPos) >= agent.goalMoveThreshold;
 }
 
 void clearNavPath(NavigationAgent& agent) {
@@ -652,10 +653,7 @@ void registerNavModule(flecs::world& world) {
                 return;
             }
 
-            const float dt = GetFrameTime();
-            if (dt <= 0.0f) {
-                return;
-            }
+            const float dt = kSimTickDt;
 
             const MapNavigation& nav = resolveNavForAgent(worldRef, agent);
             const Vector3 agentFeetPos = actorFeet(entity, motor);
@@ -682,7 +680,7 @@ void registerNavModule(flecs::world& world) {
                 agent.replanTimer = agent.replanInterval;
                 agent.agentLeaf = agentLeaf;
             }
-        });
+        }).add<SimSystem>();
 }
 
 }

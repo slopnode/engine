@@ -1,8 +1,13 @@
 #include "render/dynamic_light_shadows.hpp"
 
+#include "core/frame_counters.hpp"
+
 #include "render/dynamic_light_shadow_math.hpp"
+#include "render/gpu_skinning.hpp"
+#include "render/model_cull.hpp"
 #include "map/bsp.hpp"
 #include "map/lightmap.hpp"
+#include "map/pvs.hpp"
 #include "render/render_frustum.hpp"
 
 #include <rlgl.h>
@@ -18,15 +23,41 @@ namespace slopengine {
 
 namespace {
 
+struct ShadowCasterCull {
+    Frustum frustum{};
+    Vector3 lightPosition{};
+    float range = 0.0f;
+    const BspTree* tree = nullptr;
+    const PvsFile* pvs = nullptr;
+    std::int32_t lightLeaf = -1;
+};
+
+bool aabbWithinRange(const BoundingBox& box, Vector3 center, float range) {
+    const Vector3 closest{
+        std::clamp(center.x, box.min.x, box.max.x),
+        std::clamp(center.y, box.min.y, box.max.y),
+        std::clamp(center.z, box.min.z, box.max.z),
+    };
+    const Vector3 delta = Vector3Subtract(closest, center);
+    return Vector3DotProduct(delta, delta) <= range * range;
+}
+
+bool casterBoundsVisible(const ShadowCasterCull& cull, const BoundingBox& worldBounds) {
+    return aabbWithinRange(worldBounds, cull.lightPosition, cull.range) &&
+        aabbInFrustum(cull.frustum, worldBounds);
+}
+
 void drawShadowCasters(
     flecs::world& world,
     Shader depthShader,
     int useAlphaClipLoc,
-    Vector3 lightPosition) {
+    const ShadowCasterCull& cull) {
     const int alphaOff = 0;
     if (useAlphaClipLoc >= 0) {
         SetShaderValue(depthShader, useAlphaClipLoc, &alphaOff, SHADER_UNIFORM_INT);
     }
+    const Vector3 lightPosition = cull.lightPosition;
+    const bool havePvs = cull.tree != nullptr && cull.pvs != nullptr && cull.lightLeaf >= 0;
 
     glEnable(GL_POLYGON_OFFSET_FILL);
     glPolygonOffset(0.0f, 4.0f);
@@ -34,15 +65,48 @@ void drawShadowCasters(
         if (!entity.has<WorldSpace>()) {
             return;
         }
-        const BoundingBox localBounds = GetModelBoundingBox(model.model);
-        const BoundingBox worldBounds = transformAabb(localBounds, global.matrix);
-        if (shouldSkipShadowCaster(entity.has<MapLightmapState>(), worldBounds, lightPosition)) {
+        const bool isMap = entity.has<MapLightmapState>();
+        const BoundingBox worldBounds = isMap
+            ? transformAabb(modelLocalBounds(model), global.matrix)
+            : refreshModelCull(model, global.matrix, cull.tree);
+        if (shouldSkipShadowCaster(isMap, worldBounds, lightPosition)) {
             return;
         }
+        if (!casterBoundsVisible(cull, worldBounds)) {
+            ++frameCounters().shadowCastersCulled;
+            return;
+        }
+        if (!isMap && havePvs &&
+            !pvsVisibleLeavesFromLeaf(*cull.tree, *cull.pvs, cull.lightLeaf, model.cullLeaves)) {
+            ++frameCounters().shadowCastersCulled;
+            return;
+        }
+        if (!isMap) {
+            model.drawnFrame = renderFrameSerial();
+        }
+        std::vector<unsigned char> meshMask;
         const std::unordered_set<int>* skipMeshes = nullptr;
         std::unordered_set<int> meshSkip;
-        if (entity.has<MapLightmapState>()) {
+        if (isMap) {
             const MapLightmapState& lightmaps = entity.get<MapLightmapState>();
+            if (!lightmaps.opaqueMeshes.empty()) {
+                meshMask.assign(static_cast<std::size_t>(std::max(0, model.model.meshCount)), 1);
+                for (const MapMeshCull& meshCull : lightmaps.opaqueMeshes) {
+                    if (meshCull.meshIndex < 0 || meshCull.meshIndex >= model.model.meshCount) {
+                        continue;
+                    }
+                    const BoundingBox meshBounds = transformAabb(meshCull.bounds, global.matrix);
+                    bool visible = casterBoundsVisible(cull, meshBounds);
+                    if (visible && havePvs && !meshCull.leaves.empty()) {
+                        visible = pvsVisibleLeavesFromLeaf(
+                            *cull.tree, *cull.pvs, cull.lightLeaf, meshCull.leaves);
+                    }
+                    if (!visible) {
+                        meshMask[static_cast<std::size_t>(meshCull.meshIndex)] = 0;
+                        ++frameCounters().shadowCastersCulled;
+                    }
+                }
+            }
             if (!lightmaps.transparentMeshIndices.empty()) {
                 meshSkip.insert(
                     lightmaps.transparentMeshIndices.begin(),
@@ -65,19 +129,29 @@ void drawShadowCasters(
         }
         rlPushMatrix();
         rlMultMatrixf(MatrixToFloatV(global.matrix).v);
-        if (skipMeshes != nullptr) {
-            for (int meshIndex = 0; meshIndex < model.model.meshCount; ++meshIndex) {
-                if (skipMeshes->count(meshIndex) > 0) {
-                    continue;
-                }
-                DrawMesh(
-                    model.model.meshes[meshIndex],
-                    model.model.materials[meshIndex],
-                    MatrixIdentity());
+        setActiveShaderParams(entity.has<ShaderParams>() ? &entity.get<ShaderParams>() : nullptr);
+        beginModelDraw(model.model);
+        for (int meshIndex = 0; meshIndex < model.model.meshCount; ++meshIndex) {
+            if (!meshMask.empty() && meshMask[static_cast<std::size_t>(meshIndex)] == 0) {
+                continue;
             }
-        } else {
-            DrawModel(model.model, Vector3Zero(), 1.0f, WHITE);
+            if (skipMeshes != nullptr) {
+                if (skipMeshes->count(meshIndex) == 0) {
+                    drawModelMesh(model.model, meshIndex, model.model.materials[meshIndex]);
+                    ++frameCounters().shadowMeshDraws;
+                }
+                continue;
+            }
+            drawModelMesh(
+                model.model,
+                meshIndex,
+                model.model.materials[model.model.meshMaterial[meshIndex]],
+                {},
+                model.model.transform);
+            ++frameCounters().shadowMeshDraws;
         }
+        endModelDraw();
+        setActiveShaderParams(nullptr);
         rlPopMatrix();
         for (int i = 0; i < model.model.materialCount; ++i) {
             model.model.materials[i].shader = previous[static_cast<std::size_t>(i)];
@@ -94,9 +168,11 @@ void renderShadowFace(
     float nearPlane,
     float farPlane,
     flecs::world& world,
-    Vector3 lightPosition) {
+    Vector3 lightPosition,
+    std::int32_t lightLeaf) {
     const int layer = slotIndex * kDynamicShadowFacesPerSlot + faceIndex;
     DynamicLightShadowSlot& slot = shadowState.slots[slotIndex];
+    ++frameCounters().shadowFaces;
 
     BeginTextureMode(shadowState.scratch);
     rlEnableFramebuffer(shadowState.fboId);
@@ -113,11 +189,20 @@ void renderShadowFace(
     const Matrix lightView = rlGetMatrixModelview();
     const Matrix lightProj = rlGetMatrixProjection();
     slot.viewProj[faceIndex] = MatrixMultiply(lightView, lightProj);
+    ShadowCasterCull cull{};
+    cull.frustum = makeFrustumFromCamera(camera, 1.0f);
+    cull.lightPosition = lightPosition;
+    cull.range = farPlane;
+    if (world.has<MapBsp>() && world.has<MapPvs>()) {
+        cull.tree = &world.get<MapBsp>().tree;
+        cull.pvs = &world.get<MapPvs>().pvs;
+        cull.lightLeaf = lightLeaf;
+    }
     drawShadowCasters(
         world,
         shadowState.depthShader,
         shadowState.useAlphaClipLoc,
-        lightPosition);
+        cull);
     EndMode3D();
     rlSetClipPlanes(RL_CULL_DISTANCE_NEAR, RL_CULL_DISTANCE_FAR);
     EndTextureMode();
@@ -202,7 +287,7 @@ DynamicLightShadowState createDynamicLightShadowState(AssetStore& assets, int re
         kMinDynamicShadowMapResolution,
         kMaxDynamicShadowMapResolution);
     DynamicLightShadowState state{};
-    const std::string vert = assets.getShaderSource("default/shadow_depth_vert");
+    const std::string vert = assets.getModelShaderSource("default/shadow_depth_vert");
     const std::string frag = assets.getShaderSource("default/shadow_depth_frag");
     if (!vert.empty() && !frag.empty()) {
         state.depthShader = LoadShaderFromMemory(vert.c_str(), frag.c_str());
@@ -210,6 +295,7 @@ DynamicLightShadowState createDynamicLightShadowState(AssetStore& assets, int re
             state.depthShader.locs[SHADER_LOC_MAP_ALBEDO] =
                 GetShaderLocation(state.depthShader, "texture0");
             state.useAlphaClipLoc = GetShaderLocation(state.depthShader, "useAlphaClip");
+            state.depthShader.locs[SHADER_LOC_MAP_HEIGHT] = GetShaderLocation(state.depthShader, "deformMask");
         }
     }
 
@@ -273,6 +359,9 @@ void renderDynamicLightShadows(
         slot.lightPosition = light.position;
         slot.farPlane = std::max(light.light.range, 0.5f);
         const float nearPlane = shadowNearPlane(light.light.range);
+        const std::int32_t lightLeaf = world.has<MapBsp>()
+            ? pvsSampleLeaf(world.get<MapBsp>().tree, light.position)
+            : -1;
 
         if (light.light.kind == DynamicLightKind::Spot) {
             slot.faceCount = 1;
@@ -286,7 +375,8 @@ void renderDynamicLightShadows(
                 nearPlane,
                 slot.farPlane,
                 world,
-                light.position);
+                light.position,
+                lightLeaf);
         } else {
             slot.faceCount = kDynamicShadowFacesPerSlot;
             for (int face = 0; face < kDynamicShadowFacesPerSlot; ++face) {
@@ -299,7 +389,8 @@ void renderDynamicLightShadows(
                     nearPlane,
                     slot.farPlane,
                     world,
-                    light.position);
+                    light.position,
+                    lightLeaf);
             }
         }
     }
@@ -439,6 +530,16 @@ void bindDynamicLightShadowMaps(
         shadowState.depthArrayId == 0) {
         return;
     }
+    static std::uint32_t boundSerial = 0;
+    static unsigned int boundShader = 0;
+    static unsigned int boundArray = 0;
+    if (boundSerial == renderFrameSerial() && boundShader == shader.id &&
+        boundArray == shadowState.depthArrayId) {
+        return;
+    }
+    boundSerial = renderFrameSerial();
+    boundShader = shader.id;
+    boundArray = shadowState.depthArrayId;
 
     rlDrawRenderBatchActive();
     const int unit = kDynamicShadowTextureUnit;

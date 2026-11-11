@@ -60,7 +60,8 @@ void printUsage() {
         << "  --mod         Additional mod package directory (repeatable)\n"
         << "  --target      Package directory that receives sprite saves (defaults\n"
         << "                to --game; required when --mod is given)\n"
-        << "  --verbose     Raise the trace log level to show DEBUG messages\n";
+        << "  --verbose     Raise the trace log level to show DEBUG messages\n"
+        << "  --profile     Settings profile whose UI theme to use (default: \"default\")\n";
 }
 
 std::optional<ToolConfig> parseArgs(int argc, char* argv[]) {
@@ -102,6 +103,14 @@ std::optional<ToolConfig> parseArgs(int argc, char* argv[]) {
         }
         if (arg == "--verbose") {
             config.mount.verbose = true;
+            continue;
+        }
+        if (arg == "--profile") {
+            const char* value = needValue("--profile");
+            if (value == nullptr) {
+                return std::nullopt;
+            }
+            config.mount.profile = value;
             continue;
         }
         return std::nullopt;
@@ -1399,7 +1408,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    slopengine::installToolTheme(assets, "slopsprite");
+    slopengine::installToolTheme(assets, "slopsprite", config->mount.profile);
 
     slopsprite::Editor editor;
     editor.targetRoot = config->target;

@@ -4,6 +4,7 @@
 
 #include <raylib.h>
 
+#include <algorithm>
 #include <vector>
 
 namespace slopengine {
@@ -14,12 +15,29 @@ namespace slopengine {
 struct InputState {
     std::vector<char> actionPressed;
     std::vector<char> actionDown;
+    std::vector<char> actionPressedPending;
     Vector2 mouseDelta{};
     int mouseCaptureGraceFrames = 0;
 
     void resize(int count) {
         actionPressed.assign(static_cast<std::size_t>(count), 0);
         actionDown.assign(static_cast<std::size_t>(count), 0);
+        actionPressedPending.assign(static_cast<std::size_t>(count), 0);
+    }
+
+    void latchPresses() {
+        if (actionPressedPending.size() != actionPressed.size()) {
+            actionPressedPending.assign(actionPressed.size(), 0);
+        }
+        for (std::size_t i = 0; i < actionPressed.size(); ++i) {
+            if (actionPressed[i] != 0) {
+                actionPressedPending[i] = 1;
+            }
+        }
+    }
+
+    void clearPendingPresses() {
+        std::fill(actionPressedPending.begin(), actionPressedPending.end(), 0);
     }
 
     bool pressed(int index) const {

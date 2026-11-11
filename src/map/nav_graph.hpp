@@ -57,6 +57,21 @@ struct PortalSpread {
 PortalSpread computePortalHorizontalSpread(const std::vector<Vector3>& vertices);
 
 /** Leaf portal graph built from sealed BSP hull. */
+struct NavPolyIndex {
+    float cellSize = 2.0f;
+    int minCellX = 0;
+    int minCellZ = 0;
+    int width = 0;
+    int height = 0;
+    int leafCount = 0;
+    std::vector<int> cellStart;
+    std::vector<int> cellPolys;
+
+    bool matches(int count) const {
+        return count > 0 && leafCount == count && width > 0 && height > 0;
+    }
+};
+
 struct MapNavigation {
     int leafCount = 0;
     std::vector<bool> walkable;
@@ -75,6 +90,7 @@ struct MapNavigation {
     std::vector<std::vector<Vector3>> leafBoundary;
     std::vector<std::vector<NavPortalLink>> adjacency;
     std::vector<std::vector<NavPortalLink>> reverseAdjacency;
+    NavPolyIndex polyIndex;
 };
 
 /** The offline-baked navmesh graph (tools/slopnav), kept as a separate world resource

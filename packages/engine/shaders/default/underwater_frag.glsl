@@ -1,16 +1,33 @@
 #version 330
 
+/// Full-screen underwater look: ripple, tint and vignette.
+///
+/// The engine runs this pass while the player is submerged and fades `amount` in and
+/// out. The distortion tapers to zero near the screen edge so samples never leave the
+/// render target.
+///
+/// @used-by The engine while the player is submerged.
+/// @see actor-submerged?
+
 in vec2 fragTexCoord;
 in vec4 fragColor;
 
+/// The rendered scene.
 uniform sampler2D texture0;
+/// Draw tint.
 uniform vec4 colDiffuse;
+/// Render target size in pixels, keeps the vignette round.
 uniform vec2 resolution;
+/// Seconds, drives the ripple.
 uniform float time;
 
+/// Water color.
 uniform vec3 tint;
+/// Ripple strength.
 uniform float wobble;
+/// Edge darkening strength.
 uniform float vignette;
+/// Overall blend from 0 to 1.
 uniform float amount;
 
 out vec4 finalColor;

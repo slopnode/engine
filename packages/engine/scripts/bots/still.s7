@@ -1,0 +1,2 @@
+(define (bot-tick dt)
+  (bot-release-all!))

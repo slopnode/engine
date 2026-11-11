@@ -1,0 +1,5 @@
+(page "index" "Home"
+  (p "The engine package is mounted before every game and mod. It holds the engine's own "
+     "assets and the Scheme library every package script can use without loading anything.")
+  (package-info)
+  (asset-counts))

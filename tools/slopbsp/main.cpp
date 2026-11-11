@@ -107,6 +107,9 @@ int main(int argc, char* argv[]) {
         "slopbsp: sealed exteriorEmpty=%d interiorEmpty=%d",
         exteriorEmpty,
         interiorEmpty);
+    for (const std::string& step : analysis.leakPathFaceIds) {
+        TraceLog(LOG_WARNING, "slopbsp: leak path %s", step.c_str());
+    }
     for (const std::string& warning : analysis.detailOutsideWarnings) {
         TraceLog(LOG_WARNING, "slopbsp: %s", warning.c_str());
     }

@@ -363,7 +363,7 @@ std::optional<BspTree> readBspFile(const std::filesystem::path& path) {
         return std::nullopt;
     }
     TraceLog(
-        LOG_INFO,
+        LOG_DEBUG,
         "BSP: read '%s' bytes=%d nodes=%d leaves=%d portals=%d surfaces=%d root=%d",
         path.string().c_str(),
         static_cast<int>(size),

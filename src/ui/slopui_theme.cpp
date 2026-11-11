@@ -27,16 +27,46 @@ ImFont* ensureThemeFont(AssetStore& assets, const std::string& path, float sizeP
     if (it != cache.end()) {
         return it->second;
     }
-    ImFont* font = loadImGuiFont(assets, path, sizePixels);
+    ImFont* font = nullptr;
+    if (path == kImGuiDefaultFontPath) {
+        ImFontConfig config;
+        config.SizePixels = sizePixels;
+        font = ImGui::GetIO().Fonts->AddFontDefault(&config);
+    } else {
+        font = loadImGuiFont(assets, path, sizePixels);
+    }
     if (font != nullptr) {
         cache.emplace(path, font);
     }
     return font;
 }
 
+bool applyStockImGuiStyle(const std::string& name) {
+    if (name != "dark" && name != "light" && name != "classic") {
+        TraceLog(LOG_WARNING, "THEME: unknown imgui-style '%s'", name.c_str());
+        return false;
+    }
+    ImGuiStyle& style = ImGui::GetStyle();
+    const float fontSize = style.FontSizeBase;
+    style = ImGuiStyle();
+    style.FontSizeBase = fontSize;
+    if (name == "light") {
+        ImGui::StyleColorsLight(&style);
+    } else if (name == "classic") {
+        ImGui::StyleColorsClassic(&style);
+    } else {
+        ImGui::StyleColorsDark(&style);
+    }
+    style.WindowMenuButtonPosition = ImGuiDir_None;
+    return true;
+}
+
 } // namespace
 
 void applySlopUiStyle(const SlopUiTheme& theme) {
+    if (!theme.imguiStyle.empty() && applyStockImGuiStyle(theme.imguiStyle)) {
+        return;
+    }
     ImGuiStyle& style = ImGui::GetStyle();
 
     const bool light = themeIsLight(theme.surface);

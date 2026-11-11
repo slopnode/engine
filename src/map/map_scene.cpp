@@ -4,24 +4,31 @@
 #include "assets/skeleton_loader.hpp"
 #include "audio/audio_module.hpp"
 #include "audio/components.hpp"
+#include "fx/tracer.hpp"
 #include "camera/camera_path_player.hpp"
 #include "camera/components.hpp"
+#include "camera/view_recoil.hpp"
+#include "core/log.hpp"
 #include "game/game_state.hpp"
 #include "game/menu_background.hpp"
 #include "game/user_settings.hpp"
 #include "input/input_context.hpp"
+#include "input/player_command.hpp"
 #include "map/bsp.hpp"
 #include "map/bsp_analyze.hpp"
 #include "map/map_script.hpp"
 #include "map/nav_graph.hpp"
 #include "map/graph.hpp"
 #include "navigation/nav_module.hpp"
+#include "net/net_state.hpp"
 #include "map/graph_script.hpp"
 #include "map/light_components.hpp"
 #include "map/light_sample.hpp"
 #include "map/face_triggers.hpp"
 #include "map/things_spawn.hpp"
 #include "map/pvs.hpp"
+#include "map/map_areas.hpp"
+#include "map/area_gate_runtime.hpp"
 #include "map/water_volumes.hpp"
 #include "render/material_anim.hpp"
 #include "physics/components.hpp"
@@ -132,9 +139,14 @@ void unloadMapScene(flecs::world& world) {
         if (physics != nullptr) {
             physics->clearStaticBrushes();
             physics->clearKinematics();
+            physics->clearDebris();
+            physics->clearProps();
+            physics->clearRagdolls();
             physics->destroyAllCharacters();
         }
     }
+
+    clearTracers(world);
 
     std::vector<flecs::entity> owned;
     world.each([&](flecs::entity entity, MapOwned) {
@@ -144,6 +156,7 @@ void unloadMapScene(flecs::world& world) {
         if (!entity.is_valid()) {
             continue;
         }
+        entity.children([](flecs::entity child) { unloadMapGpuResources(child); });
         unloadMapGpuResources(entity);
         entity.destruct();
     }
@@ -160,6 +173,12 @@ void unloadMapScene(flecs::world& world) {
     }
     if (world.has<MapPvs>()) {
         world.remove<MapPvs>();
+    }
+    if (world.has<MapAreas>()) {
+        world.remove<MapAreas>();
+    }
+    if (world.has<MapAreaGateCache>()) {
+        world.remove<MapAreaGateCache>();
     }
     if (world.has<MapNavigation>()) {
         world.remove<MapNavigation>();
@@ -224,6 +243,8 @@ bool assembleMapScene(
     lightmapState.emissionPowerLoc = loaded.emissionPowerLoc;
     lightmapState.lightmapShader = loaded.lightmapShader;
     lightmapState.transparentMeshIndices = std::move(loaded.transparentMeshIndices);
+    lightmapState.transparentMeshes = std::move(loaded.transparentMeshes);
+    lightmapState.opaqueMeshes = std::move(loaded.opaqueMeshes);
     lightmapState.skyMeshIndices = std::move(loaded.skyMeshIndices);
     lightmapState.detailMeshIndices = std::move(loaded.detailMeshIndices);
     lightmapState.twoSidedMeshIndices = std::move(loaded.twoSidedMeshIndices);
@@ -283,6 +304,16 @@ bool assembleMapScene(
 
     world.set<MapBsp>(std::move(mapBsp));
     world.set<MapPvs>(MapPvs{std::move(loaded.pvs)});
+    {
+        MapAreas areas = buildMapAreas(world.get<MapBsp>().tree);
+        TraceLog(
+            LOG_DEBUG,
+            "MAP: areas=%d areaPortals=%d",
+            areas.areaCount,
+            static_cast<int>(areas.portals.size()));
+        world.set<MapAreas>(std::move(areas));
+        world.set<MapAreaGateCache>(MapAreaGateCache{});
+    }
     world.set<MapBakedNav>(MapBakedNav{loaded.nav});
     world.set<MapNavProfiles>(MapNavProfiles{std::move(loaded.navProfiles)});
     {
@@ -292,7 +323,7 @@ bool assembleMapScene(
             // that haven't been re-baked yet (loaded.nav empty) fall back to building
             // the BSP leaf/portal graph at runtime exactly as before, so this cutover
             // doesn't break any existing map until someone runs slopnav on it.
-            TraceLog(LOG_INFO, "MAP: using baked navmesh graph (polys=%d)", loaded.nav.leafCount);
+            TraceLog(LOG_DEBUG, "MAP: using baked navmesh graph (polys=%d)", loaded.nav.leafCount);
             world.set<MapNavigation>(std::move(loaded.nav));
         } else {
             TraceLog(
@@ -385,10 +416,13 @@ bool assembleMapScene(
 
     flecs::entity player = world.entity("Player")
         .add<MapOwned>()
+        .add<LocalPlayer>()
+        .add<PlayerBody>()
         .add<PlayerCamera>()
         .add<WorldSpace>()
         .set<FirstPersonController>(controller)
         .set<ViewEyeOffset>(ViewEyeOffset{})
+        .set<ViewRecoil>(ViewRecoil{})
         .set<AudioListener>(AudioListener{});
 
     if (titleCamera) {
@@ -402,6 +436,7 @@ bool assembleMapScene(
                 TraceLog(LOG_WARNING, "TITLE: camera path '%s' not found", pathId.c_str());
             }
         }
+        resetNetMapFields(world);
         callOnMapReady(world, mapName, reason);
         world.set<CurrentMap>(CurrentMap{std::string(mapName)});
         return true;
@@ -435,8 +470,10 @@ bool assembleMapScene(
     lens.camera.target = Vector3Add(lens.camera.position, forward);
     player.set<Lens>(lens)
         .set<CharacterMotor>(motor)
-        .set<CollisionTags>(CollisionTags{{"player"}});
+        .set<CollisionTags>(CollisionTags{{"player"}})
+        .set<LocalTransformation>(LocalTransformation{playerStart.position, {1.0f, 1.0f, 1.0f}, QuaternionFromAxisAngle({0.0f, 1.0f, 0.0f}, controller.yaw)});
     world.set<PlayerEntity>(PlayerEntity{player});
+    world.set<MapPlayerStart>(MapPlayerStart{playerStart.position, controller.yaw, controller.pitch, motor});
 
     if (world.has<PhysicsContext>()) {
         PhysicsWorld* physics = world.get_mut<PhysicsContext>().world;
@@ -457,6 +494,7 @@ bool assembleMapScene(
     }
     updateFirstPersonSceneTransforms(world);
     callPrepareFirstPerson(world);
+    resetNetMapFields(world);
     callOnMapReady(world, mapName, reason);
 
     world.set<CurrentMap>(CurrentMap{std::string(mapName)});
@@ -475,7 +513,10 @@ void changeMap(
         enterMenu(world);
         return;
     }
-    if (registerMapScene(world, assets, scheme, mapName, reason)) {
+    Log::beginCapture();
+    const bool loaded = registerMapScene(world, assets, scheme, mapName, reason);
+    std::vector<LogEntry> details = Log::endCapture();
+    if (loaded) {
         if (reason == "title") {
             markTitleMapActive(world, true);
             world.set<GameState>(GameState{GameStateKind::Menu});
@@ -497,6 +538,9 @@ void changeMap(
         }
     } else {
         enterMenu(world);
+    }
+    if (!loaded) {
+        reportMapLoadFailure(world, mapName, "Loading map", std::move(details));
     }
 }
 

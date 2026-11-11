@@ -8,7 +8,7 @@ A script runs under one `ScriptScope` at a time (@ref scopes-roles-and-caps). `U
 
 # Hooks {#ui-hud-hooks}
 
-Both systems are wired up the same way, through the fixed hook whitelist in `src/script/hook_registry.hpp`. A script defines `(define (draw-pause-menu) ...)` directly to become that hook's owner, or calls `(hook-add 'draw-pause-menu my-proc)` to run alongside the existing owner without replacing it, the mechanism a mod uses to add its own menu entries on top of the base game's. Owners are captured once at boot, right after the base package's scripts load. Contributors added later all run after the owner, in the order they were added.
+Both systems are wired up the same way, through the fixed hook whitelist in `src/script/hook_registry.hpp`. A base package script defines `(define (draw-pause-menu) ...)` directly to become that hook's owner, or calls `(hook-add 'draw-pause-menu my-proc)` to run alongside the existing owner without replacing it, the mechanism a mod uses to add its own menu entries on top of the base game's. Owners are captured once at boot, right after the base package's scripts load. Contributors added later all run after the owner, in the order they were added.
 
 The engine calls each hook from a fixed point in native code: `src/ui/ui_module.cpp`'s `drawMainMenuBar()` calls `draw-file-menu` inside the native File menu and `draw-debug-menu` inside the native Debug menu, `drawPauseMenu()` calls `draw-pause-menu`, and `drawUi()` calls `draw-modals` every frame regardless of menu state. On the HUD side, `src/render/render_pass_fp.cpp`'s `drawHud()` calls `draw-hud` once per frame after clearing the frame's draw list, and `src/game/menu_background.cpp` calls `draw-title` for the main menu's title screen.
 

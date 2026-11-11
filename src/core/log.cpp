@@ -18,6 +18,7 @@ namespace {
 
 constexpr std::size_t kMaxFormattedLength = 1024;
 constexpr std::size_t kMaxDeferredQueue = 500;
+constexpr std::size_t kMaxRecentWarnings = 200;
 
 struct TagCategory {
     std::string_view prefix;
@@ -66,6 +67,10 @@ struct LogState {
     std::vector<LogSink> deferredSinks;
     std::deque<LogEntry> deferredQueue;
     std::size_t droppedSinceLastPump = 0;
+    int captureDepth = 0;
+    std::vector<LogEntry> captured;
+    std::uint64_t sequence = 0;
+    std::deque<std::pair<std::uint64_t, LogEntry>> recentWarnings;
 };
 
 LogState& state() {
@@ -132,6 +137,16 @@ void emit(LogLevel level, LogCategory category, std::string text) {
     std::vector<LogSink> immediateCopy;
     {
         std::lock_guard<std::mutex> lock(s.mutex);
+        ++s.sequence;
+        if (level >= LogLevel::Warning) {
+            if (s.captureDepth > 0 && s.captured.size() < kMaxDeferredQueue) {
+                s.captured.push_back(entry);
+            }
+            if (s.recentWarnings.size() >= kMaxRecentWarnings) {
+                s.recentWarnings.pop_front();
+            }
+            s.recentWarnings.emplace_back(s.sequence, entry);
+        }
         if (level < s.minLevel || s.disabledCategories.count(category) != 0) {
             return;
         }
@@ -238,6 +253,44 @@ void Log::pump() {
             sink(entry);
         }
     }
+}
+
+void Log::beginCapture() {
+    LogState& s = state();
+    std::lock_guard<std::mutex> lock(s.mutex);
+    if (s.captureDepth++ == 0) {
+        s.captured.clear();
+    }
+}
+
+std::vector<LogEntry> Log::endCapture() {
+    LogState& s = state();
+    std::lock_guard<std::mutex> lock(s.mutex);
+    if (s.captureDepth == 0) {
+        return {};
+    }
+    if (--s.captureDepth > 0) {
+        return s.captured;
+    }
+    return std::move(s.captured);
+}
+
+std::uint64_t Log::mark() {
+    LogState& s = state();
+    std::lock_guard<std::mutex> lock(s.mutex);
+    return s.sequence;
+}
+
+std::vector<LogEntry> Log::warningsSince(std::uint64_t mark) {
+    LogState& s = state();
+    std::lock_guard<std::mutex> lock(s.mutex);
+    std::vector<LogEntry> out;
+    for (const auto& [sequence, entry] : s.recentWarnings) {
+        if (sequence > mark) {
+            out.push_back(entry);
+        }
+    }
+    return out;
 }
 
 void Log::setCategoryEnabled(LogCategory category, bool enabled) {

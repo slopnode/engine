@@ -177,8 +177,13 @@ bool VirtualFileSystem::buildAssetRelative(
     std::filesystem::path& outDirectory,
     std::string& outFilename) {
     const auto relative = normalizeVirtualPath(virtualPath);
-    if (relative.empty() || relative.is_absolute()) {
+    if (relative.empty() || relative.is_absolute() || relative.has_root_name()) {
         return false;
+    }
+    for (const auto& part : relative) {
+        if (part == "..") {
+            return false;
+        }
     }
 
     const auto assetPath = std::filesystem::path{kindDirectory(kind)} / relative;

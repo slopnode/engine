@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <string>
 #include <string_view>
+#include <vector>
 
 struct s7_scheme;
 
@@ -89,6 +90,8 @@ struct SlopUiTheme {
     ThemeColor textDim;
     ThemeColor danger;
 
+    std::string imguiStyle;
+
     float rounding = 0.0f;
     float border = 1.0f;
     float frameBorder = 0.0f;
@@ -171,7 +174,20 @@ SlopUiTheme defaultSlopUiTheme();
 
 void overlayPackageThemeFromScheme(s7_scheme* scheme, SlopUiTheme& theme, bool editor = false);
 
-SlopUiTheme loadSlopUiTheme(AssetStore& assets, s7_scheme* scheme, bool editor = false);
+inline constexpr const char* kDefaultSlopUiThemeId = "win95";
+
+struct SlopUiThemeEntry {
+    std::string id;
+    std::string name;
+};
+
+std::vector<SlopUiThemeEntry> listSlopUiThemes(AssetStore& assets, s7_scheme* scheme);
+
+SlopUiTheme loadSlopUiTheme(
+    AssetStore& assets,
+    s7_scheme* scheme,
+    bool editor = false,
+    std::string_view themeId = kDefaultSlopUiThemeId);
 
 std::string serializeSlopUiTheme(const SlopUiTheme& theme);
 
@@ -187,6 +203,10 @@ struct SlopUiFonts {
 
 struct SlopUiThemeReload {
     bool pending = false;
+};
+
+struct SlopUiThemeCatalog {
+    std::vector<SlopUiThemeEntry> themes;
 };
 
 void applySlopUiTheme(const SlopUiTheme& theme, AssetStore& assets, SlopUiFonts& fonts);

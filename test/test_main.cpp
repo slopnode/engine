@@ -12,15 +12,44 @@ void runSexprTests();
 void runPackageSearchTests();
 void runPackageMetaTests();
 void runAssetTests();
+void runRiggedAssetTests();
 void runTextureGraphTests();
 void runScriptScopeTests();
 void runSchemeHardenTests();
+void runProcRoleTests();
+void runSimClockTests();
+void runNetTests();
+void runTransportTests();
+void runEnetTransportTests();
+void runSecureTransportTests();
+void runNetProtocolTests();
+void runNetSessionTests();
+void runNetRejoinTests();
+void runNetPredictionTests();
+void runNetInterestTests();
+void runThingRespawnTests();
+void runNetSessionFieldTests();
+void runNetHardeningTests();
+void runNetPacingTests();
+void runBotScriptTests();
+void runMotorRulesTests();
+void runNetSpawnTests();
+void runNetPredictedEventTests();
+void runNetAudienceTests();
+void runNetHostStandInTests();
+void runNetRewindTests();
+void runHeadlessAssetTests();
+void runNetGuardTests();
+void runS7ReadTests();
 void runBspBuildTests();
 void runBspAnalyzeTests();
 void runMapScriptTests();
 void runCameraPathTests();
 void runCsgCompileTests();
 void runPvsBuildTests();
+void runMapAreasTests();
+void runMapMetaTests();
+void runBspPolygonTests();
 void runNavGraphTests();
 void runNavMacroLinksTests();
 void runNavBakeTests();
@@ -44,9 +73,16 @@ void runLightmapMergeTests();
 void runLightmapPackTests();
 void runRadiosityEmitterTests();
 void runSunShadowSoftnessTests();
+void runLightProbeCubeTests();
+void runAttachmentPathTests();
 void runSeamStitchTests();
 void runSightTests();
+void runViewRecoilTests();
+void runModelHitboxTests();
+void runSkinCutTests();
+void runRagdollTests();
 void runSlopUiThemeTests();
+void runTracerTests();
 
 }
 
@@ -62,15 +98,44 @@ const Suite kSuites[] = {
     {"package_search", slopengine::runPackageSearchTests},
     {"package_meta", slopengine::runPackageMetaTests},
     {"assets", slopengine::runAssetTests},
+    {"rigged_assets", slopengine::runRiggedAssetTests},
     {"texture_graph", slopengine::runTextureGraphTests},
     {"script_scope", slopengine::runScriptScopeTests},
     {"scheme_harden", slopengine::runSchemeHardenTests},
+    {"proc_role", slopengine::runProcRoleTests},
+    {"sim_clock", slopengine::runSimClockTests},
+    {"net", slopengine::runNetTests},
+    {"transport", slopengine::runTransportTests},
+    {"enet_transport", slopengine::runEnetTransportTests},
+    {"secure_transport", slopengine::runSecureTransportTests},
+    {"net_protocol", slopengine::runNetProtocolTests},
+    {"net_session", slopengine::runNetSessionTests},
+    {"net_rejoin", slopengine::runNetRejoinTests},
+    {"net_prediction", slopengine::runNetPredictionTests},
+    {"net_interest", slopengine::runNetInterestTests},
+    {"thing_respawn", slopengine::runThingRespawnTests},
+    {"net_session_fields", slopengine::runNetSessionFieldTests},
+    {"net_hardening", slopengine::runNetHardeningTests},
+    {"net_pacing", slopengine::runNetPacingTests},
+    {"bot_script", slopengine::runBotScriptTests},
+    {"motor_rules", slopengine::runMotorRulesTests},
+    {"net_spawn", slopengine::runNetSpawnTests},
+    {"net_predicted_events", slopengine::runNetPredictedEventTests},
+    {"net_audience", slopengine::runNetAudienceTests},
+    {"net_host_standins", slopengine::runNetHostStandInTests},
+    {"net_rewind", slopengine::runNetRewindTests},
+    {"headless_assets", slopengine::runHeadlessAssetTests},
+    {"net_guards", slopengine::runNetGuardTests},
+    {"s7_read", slopengine::runS7ReadTests},
     {"bsp_build", slopengine::runBspBuildTests},
     {"bsp_analyze", slopengine::runBspAnalyzeTests},
     {"map_script", slopengine::runMapScriptTests},
     {"camera_path", slopengine::runCameraPathTests},
     {"csg_compile", slopengine::runCsgCompileTests},
     {"pvs_build", slopengine::runPvsBuildTests},
+    {"map_areas", slopengine::runMapAreasTests},
+    {"map_meta", slopengine::runMapMetaTests},
+    {"bsp_polygon", slopengine::runBspPolygonTests},
     {"nav_graph", slopengine::runNavGraphTests},
     {"nav_macro_links", slopengine::runNavMacroLinksTests},
     {"nav_bake", slopengine::runNavBakeTests},
@@ -94,9 +159,16 @@ const Suite kSuites[] = {
     {"lightmap_pack", slopengine::runLightmapPackTests},
     {"radiosity_emitters", slopengine::runRadiosityEmitterTests},
     {"sun_shadow_softness", slopengine::runSunShadowSoftnessTests},
+    {"light_probe_cube", slopengine::runLightProbeCubeTests},
+    {"attachment_path", slopengine::runAttachmentPathTests},
     {"seam_stitch", slopengine::runSeamStitchTests},
     {"sight", slopengine::runSightTests},
+    {"view_recoil", slopengine::runViewRecoilTests},
+    {"model_hitboxes", slopengine::runModelHitboxTests},
+    {"skin_cut", slopengine::runSkinCutTests},
+    {"ragdoll", slopengine::runRagdollTests},
     {"slopui_theme", slopengine::runSlopUiThemeTests},
+    {"tracer", slopengine::runTracerTests},
 };
 
 bool runSuite(const Suite& suite) {

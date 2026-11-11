@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 
 namespace slopengine {
@@ -11,11 +12,16 @@ struct AnimationPlayer {
     std::string animBankPath;
     std::string clipName;
     float time = 0.0f;
+    float prevTime = 0.0f;
     float speed = 1.0f;
     bool loop = true;
     bool playing = false;
     bool justStarted = false;
     bool justFinished = false;
+    bool wrappedLastTick = false;
+    bool poseStale = false;
+    std::uint64_t poseSampledTick = 0;
+    float lastFrame = -1.0f;
 
     /** Starts playback of @p clip at @p playbackSpeed, optionally looping. */
     void play(std::string_view clip, bool shouldLoop = true, float playbackSpeed = 1.0f);
@@ -23,5 +29,7 @@ struct AnimationPlayer {
     /** Stops playback and clears transition flags. */
     void stop();
 };
+
+float blendAnimationTime(float prevTime, float time, float duration, bool wrapped, float alpha);
 
 }

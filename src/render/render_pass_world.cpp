@@ -2,18 +2,23 @@
 
 #include "assets/asset_services.hpp"
 #include "assets/asset_store.hpp"
+#include "core/frame_counters.hpp"
 #include "map/bsp.hpp"
 #include "map/graph.hpp"
 #include "map/light_components.hpp"
 #include "map/light_sample.hpp"
 #include "map/pvs.hpp"
+#include "map/area_gate_runtime.hpp"
+#include "map/pvs_audit.hpp"
 #include "particles/particle_sim.hpp"
+#include "render/gpu_skinning.hpp"
 #include "render/animation_player.hpp"
 #include "render/components.hpp"
 #include "render/dynamic_light.hpp"
 #include "render/dynamic_light_shadows.hpp"
 #include "physics/rigid_mover.hpp"
 #include "render/fx_local_light.hpp"
+#include "render/model_cull.hpp"
 #include "render/render_debug.hpp"
 #include "render/sprite_animator.hpp"
 #include "render/sprite_billboard.hpp"
@@ -21,8 +26,11 @@
 #include "ui/ui_state.hpp"
 
 #include <algorithm>
+#include <limits>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
+#include <cstring>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -41,8 +49,23 @@ constexpr float kDetailMeshPolygonOffsetUnits = 2.0f;
 constexpr float kTransparentMeshPolygonOffsetFactor = -1.0f;
 constexpr float kTransparentMeshPolygonOffsetUnits = -2.0f;
 
-const MapLightmapState* mapLightmapState(flecs::world& world) {
+flecs::entity mapStaticEntity(flecs::world& world) {
+    static const ecs_world_t* cachedWorld = nullptr;
+    static flecs::entity_t cachedId = 0;
+    if (cachedWorld == world.c_ptr() && cachedId != 0 && world.is_alive(cachedId)) {
+        const char* name = ecs_get_name(world.c_ptr(), cachedId);
+        if (name != nullptr && std::strcmp(name, "MapStatic") == 0) {
+            return world.entity(cachedId);
+        }
+    }
     flecs::entity mapEntity = world.lookup("MapStatic");
+    cachedWorld = world.c_ptr();
+    cachedId = mapEntity.is_valid() ? mapEntity.id() : 0;
+    return mapEntity;
+}
+
+const MapLightmapState* mapLightmapState(flecs::world& world) {
+    flecs::entity mapEntity = mapStaticEntity(world);
     if (!mapEntity.is_valid() || !mapEntity.has<MapLightmapState>()) {
         return nullptr;
     }
@@ -57,10 +80,11 @@ void uploadLightmapDynamicLights(flecs::world& world, Shader shader) {
     if (shader.id == 0 || !world.has<DynamicLightFrameState>()) {
         return;
     }
-    const DynamicLightFrameState& frame = world.get<DynamicLightFrameState>();
-    if (!frame.bindings.resolved) {
+    DynamicLightFrameState& frame = world.get_mut<DynamicLightFrameState>();
+    if (!frame.bindings.resolved || frame.uploadedShaderId == shader.id) {
         return;
     }
+    frame.uploadedShaderId = shader.id;
     const DynamicLightShadowState* shadows = nullptr;
     if (frame.shadowMapsActive && world.has<DynamicLightShadowState>()) {
         const DynamicLightShadowState& shadowState = world.get<DynamicLightShadowState>();
@@ -125,8 +149,15 @@ void drawModelMeshes(
     const std::unordered_set<int>* polygonOffsetBackMeshIndices,
     const std::unordered_set<int>* twoSidedMeshIndices = nullptr,
     int emissionPowerLoc = -1,
-    Color tint = WHITE) {
+    Color tint = WHITE,
+    Shader skinFallback = {},
+    int* drawCounter = nullptr,
+    const std::vector<unsigned char>* meshMask = nullptr) {
     for (int meshIndex = 0; meshIndex < model.meshCount; ++meshIndex) {
+        if (meshMask != nullptr && meshIndex < static_cast<int>(meshMask->size()) &&
+            (*meshMask)[static_cast<std::size_t>(meshIndex)] == 0) {
+            continue;
+        }
         if (skipMeshIndices != nullptr && skipMeshIndices->count(meshIndex) > 0) {
             continue;
         }
@@ -146,15 +177,12 @@ void drawModelMeshes(
             rlDisableBackfaceCulling();
         }
         Material& material = model.materials[meshIndex];
-        if (emissionPowerLoc >= 0) {
-            SetShaderValue(
-                material.shader,
-                emissionPowerLoc,
-                &material.maps[MATERIAL_MAP_SPECULAR].value,
-                SHADER_UNIFORM_FLOAT);
-        }
+        setEmissionPower(material.shader, emissionPowerLoc, material.maps[MATERIAL_MAP_SPECULAR].value);
         const Color originalDiffuse = tintMeshDiffuse(material, tint);
-        DrawMesh(model.meshes[meshIndex], material, MatrixIdentity());
+        drawModelMesh(model, meshIndex, material, skinFallback);
+        if (drawCounter != nullptr) {
+            ++*drawCounter;
+        }
         material.maps[MATERIAL_MAP_ALBEDO].color = originalDiffuse;
         if (twoSided) {
             rlEnableBackfaceCulling();
@@ -206,60 +234,25 @@ float boundsNearestPointViewDepth(
     return viewDepthAlongAxis(closest, cameraPos, cameraForward);
 }
 
+float boundsMinViewDepth(const BoundingBox& worldBounds, Vector3 cameraPos, Vector3 cameraForward) {
+    float minDepth = std::numeric_limits<float>::max();
+    for (int corner = 0; corner < 8; ++corner) {
+        const Vector3 point{
+            (corner & 1) != 0 ? worldBounds.max.x : worldBounds.min.x,
+            (corner & 2) != 0 ? worldBounds.max.y : worldBounds.min.y,
+            (corner & 4) != 0 ? worldBounds.max.z : worldBounds.min.z,
+        };
+        minDepth = std::min(minDepth, viewDepthAlongAxis(point, cameraPos, cameraForward));
+    }
+    return minDepth;
+}
+
 // Plane of a (near-)flat face, derived from its actual vertices rather than assumed from
 // bounding-box axis alignment, so an angled face still gets a correct normal.
 struct FacePlane {
     Vector3 normal{0.0f, 1.0f, 0.0f};
     float d = 0.0f;
 };
-
-FacePlane computeFacePlane(const Mesh& mesh, const Matrix& worldMatrix, const BoundingBox& worldBounds) {
-    FacePlane plane{};
-    if (mesh.vertexCount >= 3 && mesh.vertices != nullptr) {
-        const Vector3 v0 = Vector3Transform(
-            Vector3{mesh.vertices[0], mesh.vertices[1], mesh.vertices[2]}, worldMatrix);
-        for (int i = 1; i + 1 < mesh.vertexCount; ++i) {
-            const Vector3 v1 = Vector3Transform(
-                Vector3{
-                    mesh.vertices[i * 3 + 0], mesh.vertices[i * 3 + 1], mesh.vertices[i * 3 + 2]},
-                worldMatrix);
-            const Vector3 v2 = Vector3Transform(
-                Vector3{
-                    mesh.vertices[(i + 1) * 3 + 0],
-                    mesh.vertices[(i + 1) * 3 + 1],
-                    mesh.vertices[(i + 1) * 3 + 2]},
-                worldMatrix);
-            const Vector3 candidate =
-                Vector3CrossProduct(Vector3Subtract(v1, v0), Vector3Subtract(v2, v0));
-            if (Vector3LengthSqr(candidate) > 1e-8f) {
-                plane.normal = Vector3Normalize(candidate);
-                plane.d = Vector3DotProduct(plane.normal, v0);
-                return plane;
-            }
-        }
-    }
-    // Degenerate/unavailable geometry: fall back to the bounding box's thinnest axis, which
-    // for an axis-aligned brush face is the true face normal anyway.
-    const Vector3 extent{
-        worldBounds.max.x - worldBounds.min.x,
-        worldBounds.max.y - worldBounds.min.y,
-        worldBounds.max.z - worldBounds.min.z,
-    };
-    if (extent.x <= extent.y && extent.x <= extent.z) {
-        plane.normal = {1.0f, 0.0f, 0.0f};
-    } else if (extent.y <= extent.x && extent.y <= extent.z) {
-        plane.normal = {0.0f, 1.0f, 0.0f};
-    } else {
-        plane.normal = {0.0f, 0.0f, 1.0f};
-    }
-    const Vector3 center{
-        (worldBounds.min.x + worldBounds.max.x) * 0.5f,
-        (worldBounds.min.y + worldBounds.max.y) * 0.5f,
-        (worldBounds.min.z + worldBounds.max.z) * 0.5f,
-    };
-    plane.d = Vector3DotProduct(plane.normal, center);
-    return plane;
-}
 
 struct SpriteDrawItem {
     const SpriteInstance* sprite = nullptr;
@@ -296,16 +289,26 @@ void renderWorldModel(
     const Lens& lens,
     bool unlit,
     const std::unordered_set<int>* skipMeshIndices,
-    const std::unordered_set<int>* onlyMeshIndices) {
+    const std::unordered_set<int>* onlyMeshIndices,
+    const ModelLightingUniforms* modelLighting,
+    const std::vector<unsigned char>* meshMask) {
     rlPushMatrix();
     rlMultMatrixf(MatrixToFloatV(globalTransform.matrix).v);
+    setActiveShaderParams(entity.has<ShaderParams>() ? &entity.get<ShaderParams>() : nullptr);
 
     flecs::world world = entity.world();
+    int* drawCounter = entity.has<MapLightmapState>() ? &frameCounters().mapMeshDraws
+                                                      : &frameCounters().modelMeshDraws;
     std::vector<Shader> previousShaders;
     bool swappedPropShader = false;
     const MapLightmapState* mapLightmaps = nullptr;
     const int mapUseLightmap = unlit ? 0 : 1;
     int emissionPowerLoc = -1;
+    Shader skinFallback{};
+    if (modelUsesGpuSkinning(model.model) && world.has<AssetServices>() &&
+        world.get<AssetServices>().store != nullptr) {
+        skinFallback = world.get_mut<AssetServices>().store->getSkinningShader();
+    }
 
     if (entity.has<MapLightmapState>()) {
         const MapLightmapState& lightmaps = entity.get<MapLightmapState>();
@@ -318,7 +321,7 @@ void renderWorldModel(
                 world);
             emissionPowerLoc = lightmaps.emissionPowerLoc;
         }
-    } else if (model.model.materialCount > 0) {
+    } else if (model.model.materialCount > 0 && (modelLighting != nullptr || !entity.has<ViewSpace>())) {
         mapLightmaps = mapLightmapState(world);
         if (mapLightmaps != nullptr) {
             previousShaders.reserve(static_cast<std::size_t>(model.model.materialCount));
@@ -333,6 +336,7 @@ void renderWorldModel(
                 entity.has<BakedLightmapModel>() ? mapUseLightmap : 0,
                 globalTransform.matrix,
                 world);
+            uploadModelLighting(mapLightmaps->lightmapShader, modelLighting);
             emissionPowerLoc = mapLightmaps->emissionPowerLoc;
         }
     }
@@ -357,6 +361,7 @@ void renderWorldModel(
                 100.0f));
     }
 
+    beginModelDraw(model.model);
     if (skipMeshIndices != nullptr || onlyMeshIndices != nullptr) {
         const std::unordered_set<int>* polygonOffsetBack = nullptr;
         std::unordered_set<int> detailOffset;
@@ -378,7 +383,16 @@ void renderWorldModel(
             }
         }
         drawModelMeshes(
-            model.model, skipMeshIndices, onlyMeshIndices, polygonOffsetBack, twoSided, emissionPowerLoc);
+            model.model,
+            skipMeshIndices,
+            onlyMeshIndices,
+            polygonOffsetBack,
+            twoSided,
+            emissionPowerLoc,
+            WHITE,
+            skinFallback,
+            drawCounter,
+            meshMask);
     } else {
         const std::unordered_set<int>* polygonOffsetBack = nullptr;
         std::unordered_set<int> detailOffset;
@@ -401,16 +415,39 @@ void renderWorldModel(
         }
         if (polygonOffsetBack != nullptr || twoSided != nullptr) {
             drawModelMeshes(
-                model.model, nullptr, nullptr, polygonOffsetBack, twoSided, emissionPowerLoc);
+                model.model,
+                nullptr,
+                nullptr,
+                polygonOffsetBack,
+                twoSided,
+                emissionPowerLoc,
+                WHITE,
+                skinFallback,
+                drawCounter,
+                meshMask);
         } else {
+            const Color tint = (swappedPropShader && modelLighting != nullptr) ? WHITE : model.color;
             drawModelMeshes(
-                model.model, nullptr, nullptr, nullptr, nullptr, emissionPowerLoc, model.color);
+                model.model,
+                nullptr,
+                nullptr,
+                nullptr,
+                nullptr,
+                emissionPowerLoc,
+                tint,
+                skinFallback,
+                drawCounter,
+                meshMask);
         }
     }
 
+    endModelDraw();
     if (swappedPropShader) {
         for (int i = 0; i < model.model.materialCount; ++i) {
             model.model.materials[i].shader = previousShaders[static_cast<std::size_t>(i)];
+        }
+        if (mapLightmaps != nullptr && modelLighting != nullptr) {
+            uploadModelLighting(mapLightmaps->lightmapShader, nullptr);
         }
         if (mapLightmaps != nullptr && mapLightmaps->useLightmapLoc >= 0) {
             SetShaderValue(
@@ -421,10 +458,25 @@ void renderWorldModel(
         }
     }
 
+    setActiveShaderParams(nullptr);
     rlPopMatrix();
 }
 
 namespace {
+
+const char* primitiveNameForMesh(flecs::entity entity, int meshIndex) {
+    static std::string buffer;
+    if (!entity.has<Model3D>()) {
+        return "?";
+    }
+    const Model3D& model = entity.get<Model3D>();
+    if (meshIndex < 0 || meshIndex >= model.model.materialCount) {
+        return "?";
+    }
+    const Texture2D& albedo = model.model.materials[meshIndex].maps[MATERIAL_MAP_ALBEDO].texture;
+    buffer = "material texture " + std::to_string(albedo.id);
+    return buffer.c_str();
+}
 
 Vector3 translationFromMatrix(const Matrix& matrix) {
     return {matrix.m12, matrix.m13, matrix.m14};
@@ -438,32 +490,47 @@ Vector3 directionFromMatrix(const Matrix& matrix) {
     return Vector3Normalize(dir);
 }
 
-bool pvsVisibleFromCamera(
-    flecs::world& world,
-    Vector3 cameraPos,
-    Vector3 objectPos) {
+struct PvsCull {
+    const BspTree* tree = nullptr;
+    const PvsFile* pvs = nullptr;
+    std::int32_t fromLeaf = -1;
+    AreaGate gate{};
+};
+
+PvsCull makePvsCull(flecs::world& world, Vector3 cameraPos) {
+    PvsCull cull{};
     if (!world.has<MapPvs>() || !world.has<MapBsp>()) {
-        return true;
+        return cull;
     }
-    return pvsVisiblePoints(
-        world.get<MapBsp>().tree,
-        world.get<MapPvs>().pvs,
-        cameraPos,
-        objectPos);
+    cull.tree = &world.get<MapBsp>().tree;
+    cull.pvs = &world.get<MapPvs>().pvs;
+    cull.fromLeaf = pvsSampleLeaf(*cull.tree, cameraPos);
+    cull.gate = areaGateFromPoint(world, cameraPos);
+    return cull;
 }
 
-bool pvsBoxVisibleFromCamera(
-    flecs::world& world,
-    Vector3 cameraPos,
-    const BoundingBox& worldBounds) {
-    if (!world.has<MapPvs>() || !world.has<MapBsp>()) {
+bool pvsCullPoint(const PvsCull& cull, Vector3 point) {
+    if (cull.tree == nullptr || cull.pvs == nullptr) {
         return true;
     }
-    return pvsVisibleBox(
-        world.get<MapBsp>().tree,
-        world.get<MapPvs>().pvs,
-        cameraPos,
-        worldBounds);
+    ++frameCounters().pvsTests;
+    return pvsVisiblePointFromLeaf(*cull.tree, *cull.pvs, cull.fromLeaf, point, &cull.gate);
+}
+
+bool pvsCullBox(const PvsCull& cull, const BoundingBox& box) {
+    if (cull.tree == nullptr || cull.pvs == nullptr) {
+        return true;
+    }
+    ++frameCounters().pvsTests;
+    return pvsVisibleBoxFromLeaf(*cull.tree, *cull.pvs, cull.fromLeaf, box, &cull.gate);
+}
+
+bool pvsCullLeaves(const PvsCull& cull, const std::vector<std::int32_t>& leaves) {
+    if (cull.tree == nullptr || cull.pvs == nullptr) {
+        return true;
+    }
+    ++frameCounters().pvsTests;
+    return pvsVisibleLeavesFromLeaf(*cull.tree, *cull.pvs, cull.fromLeaf, leaves, &cull.gate);
 }
 
 struct SpriteBillboardShader {
@@ -732,6 +799,7 @@ std::vector<RankedDynamicLight> gatherDynamicLights(
         return rankedLights;
     }
     std::vector<RankedDynamicLight> candidates;
+    const PvsCull cull = makePvsCull(world, lens.camera.position);
     world.each([&](flecs::entity entity,
                    const DynamicLight& light,
                    const GlobalTransformation& global) {
@@ -751,10 +819,11 @@ std::vector<RankedDynamicLight> gatherDynamicLights(
             ranked.direction = localDir;
         }
         if (!sphereInFrustum(frustum, ranked.position, std::max(light.range, 0.0f))) {
+            ++frameCounters().lightsCulled;
             return;
         }
-        if (!viewSpace &&
-            !pvsVisibleFromCamera(world, lens.camera.position, ranked.position)) {
+        if (!viewSpace && !pvsCullPoint(cull, ranked.position)) {
+            ++frameCounters().lightsCulled;
             return;
         }
         ranked.linearRgb = dynamicLightLinearRgb(light);
@@ -765,6 +834,7 @@ std::vector<RankedDynamicLight> gatherDynamicLights(
         lens.camera.position,
         maxLights,
         maxShadowed);
+    frameCounters().lightsActive = static_cast<int>(rankedLights.size());
     return rankedLights;
 }
 
@@ -772,7 +842,9 @@ void storeDynamicLightFrameState(
     flecs::world& world,
     const std::vector<RankedDynamicLight>& rankedLights) {
     if (world.has<DynamicLightFrameState>()) {
-        world.get_mut<DynamicLightFrameState>().lights = rankedLights;
+        DynamicLightFrameState& frame = world.get_mut<DynamicLightFrameState>();
+        frame.lights = rankedLights;
+        frame.uploadedShaderId = 0;
     }
 }
 
@@ -808,6 +880,7 @@ void uploadMapDynamicLights(
                 activeShadows);
             uploadDynamicLightsToShader(
                 mapShader, frameState.bindings, rankedLights, activeShadows);
+            frameState.uploadedShaderId = mapShader.id;
         }
     }
     if (lightmaps.useLightmapLoc >= 0) {
@@ -826,16 +899,33 @@ void drawWorldModels(
     const Lens& lens,
     const Frustum& frustum,
     bool unlit) {
+    const MapLightmapState* propLightmaps = mapLightmapState(world);
+    const bool perPixelModels = !unlit && propLightmaps != nullptr && world.has<MapLighting>() &&
+        world.has<ModelLightingState>() && modelLightingSupported(propLightmaps->lightmapShader);
+    ModelLightingState* modelLightingState = nullptr;
+    if (perPixelModels) {
+        modelLightingState = &world.get_mut<ModelLightingState>();
+        gatherStaticModelLights(world, *modelLightingState);
+    }
+    const PvsCull cull = makePvsCull(world, lens.camera.position);
     context.worldModelQuery.each([&](flecs::entity modelEntity, Model3D& model, GlobalTransformation& global) {
+        ModelLightingUniforms modelLighting{};
+        bool useModelLighting = false;
         if (!modelEntity.has<MapLightmapState>()) {
-            const BoundingBox localBounds = GetModelBoundingBox(model.model);
-            const BoundingBox worldBounds = transformAabb(localBounds, global.matrix);
+            const BoundingBox& worldBounds = refreshModelCull(model, global.matrix, cull.tree);
+            const BoundingBox& localBounds = model.cullLocalBounds;
             if (!aabbInFrustum(frustum, worldBounds)) {
+                ++frameCounters().modelsFrustumCulled;
                 return;
             }
-            if (!pvsBoxVisibleFromCamera(world, lens.camera.position, worldBounds)) {
+            if (!pvsCullLeaves(cull, model.cullLeaves)) {
+                ++frameCounters().modelsPvsCulled;
                 return;
             }
+            model.drawnFrame = renderFrameSerial();
+            model.viewDistance = Vector3Distance(
+                lens.camera.position,
+                Vector3Scale(Vector3Add(worldBounds.min, worldBounds.max), 0.5f));
             if (!modelEntity.has<BakedLightmapModel>()) {
                 const Matrix* closedMatrix = nullptr;
                 Matrix closedMatrixStorage{};
@@ -848,20 +938,92 @@ void drawWorldModels(
                         moverClosedMatrix(modelEntity.get<RigidMover>(), scale);
                     closedMatrix = &closedMatrixStorage;
                 }
-                if (mapLightmapState(world) != nullptr) {
+                if (perPixelModels && !modelEntity.has<RigidMover>()) {
+                    useModelLighting = computeModelLighting(
+                        world, *modelLightingState, modelEntity, model.model, global.matrix, modelLighting);
+                }
+                if (!useModelLighting && mapLightmapState(world) != nullptr) {
                     model.color = sampleBakeTintColorForModel(
-                        world, model.model, global.matrix, unlit, closedMatrix);
-                } else {
+                        world, model.model, global.matrix, unlit, closedMatrix, &localBounds);
+                } else if (!useModelLighting) {
                     model.color = sampleReceiverTintColorForModel(
-                        world, model.model, global.matrix, unlit, closedMatrix);
+                        world, model.model, global.matrix, unlit, closedMatrix, &localBounds);
+                } else if (mapLightmapState(world) == nullptr) {
+                    model.color = sampleBakeTintColorForModel(
+                        world, model.model, global.matrix, false, nullptr, &localBounds);
                 }
             }
         }
         const std::unordered_set<int>* skipMeshes = nullptr;
         std::unordered_set<int> transparentSkip;
         std::unordered_set<int> opaqueSkip;
+        std::vector<unsigned char> meshMask;
+        const bool cullMapMeshes =
+            !world.has<DebugUiState>() || world.get<DebugUiState>().mapMeshCull;
+        static const bool cullAudit = std::getenv("SLOPENGINE_CULL_AUDIT") != nullptr;
+        static double lastCullAudit = 0.0;
+        const bool auditNow = cullAudit && GetTime() - lastCullAudit > 1.0;
         if (modelEntity.has<MapLightmapState>()) {
             const MapLightmapState& lightmaps = modelEntity.get<MapLightmapState>();
+            if (!lightmaps.opaqueMeshes.empty() && cullMapMeshes) {
+                meshMask.assign(static_cast<std::size_t>(std::max(0, model.model.meshCount)), 1);
+                for (const MapMeshCull& meshCull : lightmaps.opaqueMeshes) {
+                    if (meshCull.meshIndex < 0 || meshCull.meshIndex >= model.model.meshCount) {
+                        continue;
+                    }
+                    const BoundingBox worldBounds = transformAabb(meshCull.bounds, global.matrix);
+                    const char* culledBy = nullptr;
+                    if (!aabbInFrustum(frustum, worldBounds)) {
+                        meshMask[static_cast<std::size_t>(meshCull.meshIndex)] = 0;
+                        ++frameCounters().mapFrustumCulled;
+                        culledBy = "frustum";
+                    } else if (!meshCull.leaves.empty() && !pvsCullLeaves(cull, meshCull.leaves)) {
+                        meshMask[static_cast<std::size_t>(meshCull.meshIndex)] = 0;
+                        ++frameCounters().mapPvsCulled;
+                        culledBy = "pvs";
+                    }
+                    if (auditNow && culledBy != nullptr && cull.tree != nullptr) {
+                        const Mesh& mesh = model.model.meshes[meshCull.meshIndex];
+                        const int triangles = mesh.triangleCount;
+                        const int step = std::max(1, triangles / 24);
+                        for (int t = 0; t < triangles; t += step) {
+                            Vector3 centroid{};
+                            for (int k = 0; k < 3; ++k) {
+                                const int vi = mesh.indices != nullptr ? mesh.indices[t * 3 + k] : t * 3 + k;
+                                centroid.x += mesh.vertices[vi * 3 + 0];
+                                centroid.y += mesh.vertices[vi * 3 + 1];
+                                centroid.z += mesh.vertices[vi * 3 + 2];
+                            }
+                            centroid = Vector3Scale(centroid, 1.0f / 3.0f);
+                            const Vector3 worldPoint = Vector3Transform(centroid, global.matrix);
+                            const Vector3 toCam = Vector3Subtract(lens.camera.position, worldPoint);
+                            const float dist = Vector3Length(toCam);
+                            if (dist < 1e-3f) {
+                                continue;
+                            }
+                            const Vector3 probe = Vector3Add(worldPoint, Vector3Scale(toCam, 0.03f / dist));
+                            if (segmentOpenThroughTree(*cull.tree, lens.camera.position, probe)) {
+                                TraceLog(
+                                    LOG_WARNING,
+                                    "CULL: mesh %d (%s) culled by %s but visible at (%.1f %.1f %.1f) from camera (%.1f %.1f %.1f) leaf %d bounds (%.1f %.1f %.1f)-(%.1f %.1f %.1f) leaves %d",
+                                    meshCull.meshIndex,
+                                    primitiveNameForMesh(modelEntity, meshCull.meshIndex),
+                                    culledBy,
+                                    worldPoint.x, worldPoint.y, worldPoint.z,
+                                    lens.camera.position.x, lens.camera.position.y, lens.camera.position.z,
+                                    cull.fromLeaf,
+                                    worldBounds.min.x, worldBounds.min.y, worldBounds.min.z,
+                                    worldBounds.max.x, worldBounds.max.y, worldBounds.max.z,
+                                    static_cast<int>(meshCull.leaves.size()));
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (auditNow) {
+                    lastCullAudit = GetTime();
+                }
+            }
             if (!lightmaps.transparentMeshIndices.empty()) {
                 transparentSkip = std::unordered_set<int>(
                     lightmaps.transparentMeshIndices.begin(),
@@ -879,18 +1041,29 @@ void drawWorldModels(
                 skipMeshes = &transparentSkip;
             }
         }
-        renderWorldModel(modelEntity, model, global, lens, unlit, skipMeshes, nullptr);
+        renderWorldModel(
+            modelEntity,
+            model,
+            global,
+            lens,
+            unlit,
+            skipMeshes,
+            nullptr,
+            useModelLighting ? &modelLighting : nullptr,
+            meshMask.empty() ? nullptr : &meshMask);
     });
     rlDisableShader();
+    if (!world.has<DebugUiState>() || !world.get<DebugUiState>().showSkeletons) {
+        return;
+    }
     context.animOverlayQuery.each(
         [&](flecs::entity modelEntity, Model3D& model, GlobalTransformation& global, AnimationPlayer& animationPlayer) {
             if (!modelEntity.has<MapLightmapState>()) {
-                const BoundingBox localBounds = GetModelBoundingBox(model.model);
-                const BoundingBox worldBounds = transformAabb(localBounds, global.matrix);
+                const BoundingBox& worldBounds = refreshModelCull(model, global.matrix, cull.tree);
                 if (!aabbInFrustum(frustum, worldBounds)) {
                     return;
                 }
-                if (!pvsBoxVisibleFromCamera(world, lens.camera.position, worldBounds)) {
+                if (!pvsCullLeaves(cull, model.cullLeaves)) {
                     return;
                 }
             }
@@ -911,6 +1084,7 @@ void collectWorldSpriteDrawItems(
     std::vector<SpriteDrawItem>& spriteDrawList) {
     spriteDrawList.clear();
     spriteDrawList.reserve(32);
+    const PvsCull cull = makePvsCull(world, lens.camera.position);
     context.worldSpriteQuery.each(
         [&](flecs::entity spriteEntity, SpriteInstance& sprite, GlobalTransformation& global) {
             const Vector3 position = translationFromMatrix(global.matrix);
@@ -924,9 +1098,11 @@ void collectWorldSpriteDrawItems(
                 position.z,
             };
             if (!sphereInFrustum(frustum, cullCenter, radius)) {
+                ++frameCounters().spritesFrustumCulled;
                 return;
             }
-            if (!pvsVisibleFromCamera(world, lens.camera.position, position)) {
+            if (!pvsCullPoint(cull, position)) {
+                ++frameCounters().spritesPvsCulled;
                 return;
             }
             const Vector3 camForward = cameraForwardDir(lens.camera);
@@ -943,22 +1119,11 @@ void collectWorldSpriteDrawItems(
         });
 }
 
-Color multiplyParticleTintLocal(Color particle, Color scene) {
-    return {
-        static_cast<unsigned char>(
-            std::clamp(static_cast<int>(particle.r) * static_cast<int>(scene.r) / 255, 0, 255)),
-        static_cast<unsigned char>(
-            std::clamp(static_cast<int>(particle.g) * static_cast<int>(scene.g) / 255, 0, 255)),
-        static_cast<unsigned char>(
-            std::clamp(static_cast<int>(particle.b) * static_cast<int>(scene.b) / 255, 0, 255)),
-        particle.a,
-    };
-}
-
 void collectWorldDepthParticleDrawItems(
     flecs::world& world,
     AssetStore& assets,
     const Camera3D& camera,
+    const Frustum& frustum,
     bool unlit,
     std::vector<ParticleDrawItem>& out) {
     out.clear();
@@ -967,17 +1132,8 @@ void collectWorldDepthParticleDrawItems(
         if (entity.has<ParticleFollowAttachPoint>()) {
             return;
         }
-        appendParticleDrawItems(instance, assets, camera, out);
+        appendParticleDrawItems(instance, assets, camera, out, &frustum, unlit);
     });
-    if (!unlit) {
-        for (ParticleDrawItem& item : out) {
-            if (item.unlit || !item.depthTest) {
-                continue;
-            }
-            const Color scene = sampleReceiverTintColor(world, item.position, false, 64.0f);
-            item.color = multiplyParticleTintLocal(item.color, scene);
-        }
-    }
     out.erase(
         std::remove_if(
             out.begin(),
@@ -1017,18 +1173,35 @@ std::string drawWorldTransparentPass(
         const MapLightmapState& lightmaps = mapEntity.get<MapLightmapState>();
         Model3D& mapModel = mapEntity.get_mut<Model3D>();
         const GlobalTransformation& mapGlobal = mapEntity.get<GlobalTransformation>();
-        if (!lightmaps.transparentMeshIndices.empty()) {
-            for (int meshIndex : lightmaps.transparentMeshIndices) {
-                if (meshIndex < 0 || meshIndex >= mapModel.model.meshCount) {
+        if (!lightmaps.transparentMeshes.empty()) {
+            const PvsCull cull = makePvsCull(world, lens.camera.position);
+            const Vector3 origin = Vector3Transform(Vector3Zero(), mapGlobal.matrix);
+            for (const MapTransparentMesh& mesh : lightmaps.transparentMeshes) {
+                if (mesh.meshIndex < 0 || mesh.meshIndex >= mapModel.model.meshCount) {
                     continue;
                 }
                 TransparentDrawItem item{};
                 item.kind = TransparentDrawKind::MapMesh;
-                item.mapMeshIndex = meshIndex;
-                item.worldBounds = transformAabb(
-                    GetMeshBoundingBox(mapModel.model.meshes[meshIndex]), mapGlobal.matrix);
-                item.facePlane = computeFacePlane(
-                    mapModel.model.meshes[meshIndex], mapGlobal.matrix, item.worldBounds);
+                item.mapMeshIndex = mesh.meshIndex;
+                item.worldBounds = transformAabb(mesh.bounds, mapGlobal.matrix);
+                if (!aabbInFrustum(frustum, item.worldBounds)) {
+                    ++frameCounters().transparentFrustumCulled;
+                    continue;
+                }
+                const bool pvsVisible = mesh.leaves.empty()
+                    ? pvsCullBox(cull, item.worldBounds)
+                    : pvsCullLeaves(cull, mesh.leaves);
+                if (!pvsVisible) {
+                    ++frameCounters().transparentPvsCulled;
+                    continue;
+                }
+                const Vector3 normal = Vector3Subtract(
+                    Vector3Transform(mesh.planeNormal, mapGlobal.matrix), origin);
+                const float normalLenSq = Vector3LengthSqr(normal);
+                item.facePlane.normal =
+                    normalLenSq > 1e-12f ? Vector3Scale(normal, 1.0f / std::sqrt(normalLenSq)) : mesh.planeNormal;
+                item.facePlane.d = Vector3DotProduct(
+                    item.facePlane.normal, Vector3Transform(mesh.planePoint, mapGlobal.matrix));
                 item.viewDepth =
                     boundsCenterViewDepth(item.worldBounds, lens.camera.position, camForward);
                 drawList.push_back(item);
@@ -1048,7 +1221,7 @@ std::string drawWorldTransparentPass(
     }
 
     std::vector<ParticleDrawItem> particleDrawList;
-    collectWorldDepthParticleDrawItems(world, assets, lens.camera, unlit, particleDrawList);
+    collectWorldDepthParticleDrawItems(world, assets, lens.camera, frustum, unlit, particleDrawList);
     for (const ParticleDrawItem& particle : particleDrawList) {
         TransparentDrawItem item{};
         item.kind = TransparentDrawKind::Particle;
@@ -1099,25 +1272,40 @@ std::string drawWorldTransparentPass(
     // ordering; a cyclic one just makes the result depend on the pivot/partition choices, so the
     // draw order flips based on camera angle and whatever else happens to be in the list — the
     // intermittent misordering seen when a few sprites stand near the same transparent surface.
+    struct OccludedCandidate {
+        float viewDepth = 0.0f;
+        Vector3 position{};
+    };
+    std::vector<OccludedCandidate> candidates;
+    candidates.reserve(drawList.size());
+    for (const TransparentDrawItem& item : drawList) {
+        if (item.kind != TransparentDrawKind::MapMesh) {
+            candidates.push_back({item.viewDepth, itemPosition(item)});
+        }
+    }
+    std::sort(
+        candidates.begin(),
+        candidates.end(),
+        [](const OccludedCandidate& a, const OccludedCandidate& b) { return a.viewDepth < b.viewDepth; });
     for (TransparentDrawItem& mesh : drawList) {
-        if (mesh.kind != TransparentDrawKind::MapMesh) {
+        if (mesh.kind != TransparentDrawKind::MapMesh || candidates.empty()) {
             continue;
         }
+        const float minDepth = boundsMinViewDepth(mesh.worldBounds, lens.camera.position, camForward);
         float nearest = mesh.viewDepth;
-        bool haveNearest = false;
-        for (const TransparentDrawItem& other : drawList) {
-            if (other.kind == TransparentDrawKind::MapMesh) {
-                continue;
-            }
-            const Vector3 otherPos = itemPosition(other);
-            if (!meshCanOcclude(mesh, lens.camera.position, otherPos)) {
+        auto first = std::lower_bound(
+            candidates.begin(),
+            candidates.end(),
+            minDepth,
+            [](const OccludedCandidate& candidate, float depth) { return candidate.viewDepth < depth; });
+        for (auto it = first; it != candidates.end() && nearest > minDepth; ++it) {
+            if (!meshCanOcclude(mesh, lens.camera.position, it->position)) {
                 continue;
             }
             const float candidate = boundsNearestPointViewDepth(
-                mesh.worldBounds, otherPos, lens.camera.position, camForward);
-            if (!haveNearest || candidate < nearest) {
+                mesh.worldBounds, it->position, lens.camera.position, camForward);
+            if (candidate < nearest) {
                 nearest = candidate;
-                haveNearest = true;
             }
         }
         mesh.viewDepth = nearest;
@@ -1141,10 +1329,9 @@ std::string drawWorldTransparentPass(
     BlendMode activeBlend = BLEND_ALPHA;
     BeginBlendMode(activeBlend);
 
-    const Matrix matView = MatrixLookAt(lens.camera.position, lens.camera.target, lens.camera.up);
-    const Vector3 screenUp = Vector3Normalize(Vector3{matView.m1, matView.m5, matView.m9});
-    const Vector3 worldUp{0.0f, 1.0f, 0.0f};
+    const ParticleBillboardBasis particleBasis = makeParticleBillboardBasis(lens.camera);
     const Texture2D* particleFilterTex = nullptr;
+    bool polygonOffsetActive = false;
     Model3D* mapDrawModel = nullptr;
     GlobalTransformation* mapDrawGlobal = nullptr;
     const MapLightmapState* mapDrawLightmaps = nullptr;
@@ -1181,25 +1368,32 @@ std::string drawWorldTransparentPass(
             }
             rlPushMatrix();
             rlMultMatrixf(MatrixToFloatV(mapDrawGlobal->matrix).v);
-            glEnable(GL_POLYGON_OFFSET_FILL);
-            glPolygonOffset(
-                kTransparentMeshPolygonOffsetFactor,
-                kTransparentMeshPolygonOffsetUnits);
+            if (!polygonOffsetActive) {
+                glEnable(GL_POLYGON_OFFSET_FILL);
+                glPolygonOffset(
+                    kTransparentMeshPolygonOffsetFactor,
+                    kTransparentMeshPolygonOffsetUnits);
+                polygonOffsetActive = true;
+            }
             Material& transparentMaterial = mapDrawModel->model.materials[item.mapMeshIndex];
-            if (mapDrawLightmaps != nullptr && mapDrawLightmaps->emissionPowerLoc >= 0) {
-                SetShaderValue(
+            if (mapDrawLightmaps != nullptr) {
+                setEmissionPower(
                     transparentMaterial.shader,
                     mapDrawLightmaps->emissionPowerLoc,
-                    &transparentMaterial.maps[MATERIAL_MAP_SPECULAR].value,
-                    SHADER_UNIFORM_FLOAT);
+                    transparentMaterial.maps[MATERIAL_MAP_SPECULAR].value);
             }
             DrawMesh(
                 mapDrawModel->model.meshes[item.mapMeshIndex],
                 transparentMaterial,
                 MatrixIdentity());
-            glDisable(GL_POLYGON_OFFSET_FILL);
+            ++frameCounters().transparentMeshDraws;
             rlPopMatrix();
         } else if (item.kind == TransparentDrawKind::Sprite) {
+            if (polygonOffsetActive) {
+                rlDrawRenderBatchActive();
+                glDisable(GL_POLYGON_OFFSET_FILL);
+                polygonOffsetActive = false;
+            }
             BlendMode want = BLEND_ALPHA;
             if (const SpriteAsset* asset = assets.getSpriteAsset(item.sprite.sprite->sprite);
                 asset != nullptr && asset->blend == SpriteBlendMode::Additive) {
@@ -1221,10 +1415,16 @@ std::string drawWorldTransparentPass(
                 unlit,
                 item.sprite.animator,
                 item.sprite.hiddenParts);
+            ++frameCounters().spritesDrawn;
         } else if (item.kind == TransparentDrawKind::Particle) {
             const ParticleDrawItem& particle = item.particle;
             if (particle.texture == nullptr || particle.texture->id == 0 || particle.size <= 0.0f) {
                 continue;
+            }
+            if (polygonOffsetActive) {
+                rlDrawRenderBatchActive();
+                glDisable(GL_POLYGON_OFFSET_FILL);
+                polygonOffsetActive = false;
             }
             if (particleFilterTex != particle.texture) {
                 if (particleFilterTex != nullptr) {
@@ -1240,37 +1440,18 @@ std::string drawWorldTransparentPass(
                 activeBlend = want;
                 BeginBlendMode(activeBlend);
             }
-            const float alpha = static_cast<float>(particle.color.a) / 255.0f;
-            const Color tint{
-                static_cast<unsigned char>(
-                    std::clamp(static_cast<float>(particle.color.r) * alpha, 0.0f, 255.0f)),
-                static_cast<unsigned char>(
-                    std::clamp(static_cast<float>(particle.color.g) * alpha, 0.0f, 255.0f)),
-                static_cast<unsigned char>(
-                    std::clamp(static_cast<float>(particle.color.b) * alpha, 0.0f, 255.0f)),
-                particle.color.a,
-            };
-            const Vector2 size{particle.size, particle.size};
-            const Vector2 origin = Vector2Scale(size, 0.5f);
-            const Vector3 up =
-                particle.billboard == SpriteBillboardMode::Screen ? screenUp : worldUp;
-            DrawBillboardPro(
-                lens.camera,
-                *particle.texture,
-                particle.source,
-                particle.position,
-                up,
-                size,
-                origin,
-                0.0f,
-                tint);
+            drawParticleBillboard(particle, particleBasis, particlePremultipliedTint(particle.color));
         }
     }
 
+    rlSetTexture(0);
     if (particleFilterTex != nullptr) {
         SetTextureFilter(*particleFilterTex, TEXTURE_FILTER_POINT);
     }
     rlDrawRenderBatchActive();
+    if (polygonOffsetActive) {
+        glDisable(GL_POLYGON_OFFSET_FILL);
+    }
     EndBlendMode();
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     rlEnableDepthMask();

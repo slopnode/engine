@@ -1,3 +1,4 @@
+import math
 import re
 import struct
 
@@ -78,28 +79,53 @@ class bind_pose_context:
         self.previous_action = (
             self.animation_data.action if self.animation_data is not None else None
         )
+        self.previous_use_nla = (
+            self.animation_data.use_nla if self.animation_data is not None else True
+        )
+        self.previous_pose_position = armature_obj.data.pose_position
 
     def __enter__(self):
         if self.armature_obj.mode != "POSE":
             bpy.ops.object.mode_set(mode="POSE")
         if self.animation_data is not None:
             self.animation_data.action = None
+            self.animation_data.use_nla = False
+        self.armature_obj.data.pose_position = "REST"
         self.scene.frame_set(0)
         self.context.view_layer.update()
         return self
 
     def __exit__(self, exc_type, exc, tb):
+        self.armature_obj.data.pose_position = self.previous_pose_position
         if self.animation_data is not None:
-            self.animation_data.action = self.previous_action
+            self.animation_data.use_nla = self.previous_use_nla
+            assign_action(self.animation_data, self.previous_action)
         self.scene.frame_set(self.previous_frame)
         if self.previous_mode != "POSE":
             bpy.ops.object.mode_set(mode=self.previous_mode)
         return False
 
 
+def assign_action(animation_data, action):
+    animation_data.action = action
+    if action is None or not hasattr(animation_data, "action_slot"):
+        return
+    if animation_data.action_slot is not None:
+        return
+    for slot in getattr(action, "slots", []):
+        if slot.target_id_type in ("OBJECT", "UNSPECIFIED"):
+            animation_data.action_slot = slot
+            return
+
+
 def sanitize_name(name):
     cleaned = re.sub(r"[^\w\-./]", "_", name.strip())
     return cleaned or "unnamed"
+
+
+def parse_clip_filter(text):
+    names = [part.strip() for part in text.split(",")]
+    return [name for name in names if name] or None
 
 
 def material_path(material_name):
@@ -119,6 +145,44 @@ def format_float(value):
     if text == "-0":
         return "0"
     return text
+
+
+def raylib_euler_degrees(quat):
+    x, y, z, w = quat.x, quat.y, quat.z, quat.w
+    pitch = math.atan2(2.0 * (w * x + y * z), 1.0 - 2.0 * (x * x + y * y))
+    yaw = math.asin(max(-1.0, min(1.0, 2.0 * (w * y - z * x))))
+    roll = math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+    return Vector((math.degrees(pitch), math.degrees(yaw), math.degrees(roll)))
+
+
+def bone_parented_attachments(armature_obj, objects):
+    attachments = []
+    warnings = []
+    armature_inverse = armature_obj.matrix_world.inverted()
+    for obj in objects:
+        if obj.parent != armature_obj or obj.parent_type != "BONE" or not obj.parent_bone:
+            continue
+        if obj.get("slop_hitbox"):
+            continue
+        pose_bone = armature_obj.pose.bones.get(obj.parent_bone)
+        if pose_bone is None:
+            warnings.append(f"{obj.name}: parent bone '{obj.parent_bone}' not found")
+            continue
+        relative = convert_matrix(pose_bone.matrix.inverted() @ armature_inverse @ obj.matrix_world)
+        translation, rotation, scale = relative.decompose()
+        if max(scale) - min(scale) > 1e-4:
+            warnings.append(f"{obj.name}: non-uniform scale on a bone attachment, using the average")
+        euler = raylib_euler_degrees(rotation)
+        attachments.append(
+            {
+                "name": sanitize_name(obj.name),
+                "bone": obj.parent_bone,
+                "position": " ".join(format_float(round(v, 5)) for v in translation),
+                "rotation": " ".join(format_float(round(v, 3)) for v in euler),
+                "scale": format_float(round(sum(scale) / 3.0, 5)),
+            }
+        )
+    return attachments, warnings
 
 
 def format_vec3(vec):
@@ -324,11 +388,11 @@ def sample_action_frames(context, armature_obj, order, action, fps):
     scene = context.scene
     animation_data = armature_obj.animation_data
     action_duration = (frame_end - frame_start) / scene.render.fps
-    sample_count = max(1, int(action_duration * fps) + 1)
+    sample_count = max(1, int(round(action_duration * fps)) + 1)
     frames = []
 
     if animation_data is not None:
-        animation_data.action = action
+        assign_action(animation_data, action)
     for sample_index in range(sample_count):
         time = sample_index / fps
         frame = frame_start + time * scene.render.fps
@@ -344,9 +408,11 @@ def sample_action_frames(context, armature_obj, order, action, fps):
 
 def bone_order(armature_data):
     order = []
+    deform_only = any(bone.use_deform for bone in armature_data.bones)
 
     def walk(bone):
-        order.append(bone)
+        if bone.use_deform or not deform_only:
+            order.append(bone)
         for child in bone.children:
             walk(child)
 
@@ -357,30 +423,35 @@ def bone_order(armature_data):
     return order
 
 
+def exported_parent(bone, order):
+    parent = bone.parent
+    while parent is not None and parent not in order:
+        parent = parent.parent
+    return parent
+
+
 def bone_parent_index(bone, order):
-    if bone.parent is None:
+    parent = exported_parent(bone, order)
+    if parent is None:
         return -1
     for index, entry in enumerate(order):
-        if entry == bone.parent:
+        if entry == parent:
             return index
     return -1
 
 
-def bind_pose_transform(armature_obj, bone):
+def bind_pose_transform(armature_obj, bone, order):
     pose_bone = armature_obj.pose.bones.get(bone.name)
+    parent = exported_parent(bone, order)
     if pose_bone is not None:
-        return decompose_engine_transform(pose_bone_matrix_local(pose_bone))
-    return decompose_engine_transform(bone.matrix_local.copy())
-
-
-def pose_bone_matrix_local(pose_bone):
-    if hasattr(pose_bone, "matrix_local"):
-        return pose_bone.matrix_local.copy()
-    matrix = pose_bone.matrix.copy()
-    parent = pose_bone.parent
+        matrix = pose_bone.matrix.copy()
+        if parent is not None:
+            matrix = armature_obj.pose.bones[parent.name].matrix.inverted() @ matrix
+        return decompose_engine_transform(matrix)
+    matrix = bone.matrix_local.copy()
     if parent is not None:
-        matrix = parent.matrix.inverted() @ matrix
-    return matrix
+        matrix = parent.matrix_local.inverted() @ matrix
+    return decompose_engine_transform(matrix)
 
 
 def is_identity_transform(matrix, tolerance=1e-6):
@@ -423,10 +494,46 @@ def triangulate_mesh(mesh):
     bm = bmesh.new()
     bm.from_mesh(mesh)
     bmesh.ops.triangulate(bm, faces=bm.faces)
-    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     bm.to_mesh(mesh)
     bm.free()
     mesh.update()
+
+
+def descendant_bone_names(armature_data, root_names):
+    keep = set()
+
+    def walk(bone):
+        keep.add(bone.name)
+        for child in bone.children:
+            walk(child)
+
+    for name in root_names:
+        bone = armature_data.bones.get(name)
+        if bone is None:
+            raise ValueError(f"Bone '{name}' not found in armature")
+        walk(bone)
+    return keep
+
+
+def trim_mesh_to_bones(obj, keep_bone_names):
+    """Deletes every vertex whose heaviest vertex group is not one of keep_bone_names."""
+    mesh = obj.data
+    group_names = {group.index: group.name for group in obj.vertex_groups}
+    remove = []
+    for vertex in mesh.vertices:
+        best = max(vertex.groups, key=lambda entry: entry.weight, default=None)
+        if best is None or group_names.get(best.group) not in keep_bone_names:
+            remove.append(vertex.index)
+    if not remove:
+        return 0
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    bm.verts.ensure_lookup_table()
+    bmesh.ops.delete(bm, geom=[bm.verts[index] for index in remove], context="VERTS")
+    bm.to_mesh(mesh)
+    bm.free()
+    mesh.update()
+    return len(remove)
 
 
 def build_vertex_weights(obj, bone_order_list):
@@ -482,6 +589,7 @@ def extract_material_parts(mesh, obj, vertex_weights=None):
     if not mesh.uv_layers.active:
         mesh.uv_layers.new(name="ExportUV")
     uv_layer = mesh.uv_layers.active.data
+    corner_normals = mesh.corner_normals
 
     material_indices = sorted({face.material_index for face in mesh.polygons})
     if not material_indices:
@@ -505,19 +613,28 @@ def extract_material_parts(mesh, obj, vertex_weights=None):
             face_indices = []
             for loop_index in face.loop_indices:
                 vertex_index = mesh.loops[loop_index].vertex_index
-                export_key = (vertex_index, loop_index)
+                uv = uv_layer[loop_index].uv
+                corner_normal = corner_normals[loop_index].vector
+                if corner_normal.length_squared <= 0.0:
+                    corner_normal = mesh.vertices[vertex_index].normal
+                if corner_normal.length_squared <= 0.0:
+                    corner_normal = Vector((0.0, 0.0, 1.0))
+                export_key = (
+                    vertex_index,
+                    round(uv.x, 5),
+                    round(uv.y, 5),
+                    round(corner_normal.x, 3),
+                    round(corner_normal.y, 3),
+                    round(corner_normal.z, 3),
+                )
                 if export_key not in loop_to_export:
                     loop_to_export[export_key] = len(positions) // 3
                     vertex = mesh.vertices[vertex_index]
                     position = convert_position(vertex.co)
                     positions.extend((position.x, position.y, position.z))
-                    if vertex.normal.length_squared > 0.0:
-                        normal = convert_direction(vertex.normal)
-                    else:
-                        normal = convert_direction(Vector((0.0, 0.0, 1.0)))
+                    normal = convert_direction(corner_normal)
                     normals.extend((normal.x, normal.y, normal.z))
-                    uv = uv_layer[loop_index].uv
-                    uvs.extend((uv.x, uv.y))
+                    uvs.extend((uv.x, 1.0 - uv.y))
                     if vertex_weights is not None:
                         weights.append(vertex_weights[vertex_index])
                 face_indices.append(loop_to_export[export_key])

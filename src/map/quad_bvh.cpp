@@ -1,5 +1,6 @@
 #include "map/quad_bvh.hpp"
 
+#include "core/frame_counters.hpp"
 #include "map/brush.hpp"
 
 #include <algorithm>
@@ -391,6 +392,7 @@ std::optional<QuadBvhHit> raycastQuadBvh(
     float maxDistance,
     std::int32_t ignoreFaceIndex,
     const std::vector<char>* skipFaces) {
+    ++frameCounters().bvhRays;
     if (bvh.empty()) {
         return std::nullopt;
     }
@@ -514,6 +516,7 @@ bool quadSegmentOccluded(
     std::int32_t ignoreFaceA,
     std::int32_t ignoreFaceB,
     const std::vector<char>* skipFaces) {
+    ++frameCounters().bvhRays;
     const Vector3 delta = sub3(to, from);
     const float distance = std::sqrt(dot3(delta, delta));
     if (distance < 1e-5f) {

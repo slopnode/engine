@@ -29,6 +29,26 @@ struct AppConfig {
     /** Enables developer-only UI (e.g. the Debug menu) when set via `--debug`. */
     bool debug = false;
     bool verbose = false;
+    bool perfLog = false;
+    bool dedicated = false;
+    std::string listenAddress;
+    std::string connectAddress;
+    std::string serverKey;
+    std::string sessionKind;
+    int maxPlayers = 0;
+    std::string bot;
+    int bots = 0;
+    std::string playerName;
+    bool quitOnDisconnect = false;
+    float netLagMs = 0.0f;
+    float netJitterMs = 0.0f;
+    float netLoss = 0.0f;
+    float netStatsSeconds = 0.0f;
+    float netMaxRewindMs = 500.0f;
+    float netRejoinHoldSeconds = 300.0f;
+    int netPeersPerAddress = 4;
+    bool perfViewLock = false;
+    float perfView[5]{};
     /** Tool-facing map id (`slopbsp` / `slopvis` / `sloprad` / editors). Not used by the game runtime. */
     std::optional<std::string> map;
     std::vector<std::string> pendingArgs;

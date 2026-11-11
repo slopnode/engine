@@ -341,6 +341,12 @@ bool applyEmitterField(const Sexpr& form, ParticleEmitterDef& emitter) {
     if (tag == "die-on-hit" || tag == "die-on-ground") {
         return readBoolField(form, emitter.dieOnHit);
     }
+    if (tag == "stick") {
+        return readBoolField(form, emitter.stickOnHit);
+    }
+    if (tag == "orient") {
+        return readBoolField(form, emitter.orientDirection);
+    }
     if (tag == "unlit") {
         return readBoolField(form, emitter.unlit);
     }

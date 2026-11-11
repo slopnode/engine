@@ -309,6 +309,8 @@ void LauncherState::launchDevTool(const std::string& toolName) {
     }
     args.push_back("--target");
     args.push_back(target->root().string());
+    args.push_back("--profile");
+    args.push_back(profileName.empty() ? "default" : profileName);
 
     std::string errorOut;
     if (!slopengine::spawnDetached(exe, args, errorOut)) {

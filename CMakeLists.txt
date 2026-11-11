@@ -125,12 +125,22 @@ set(SLOPLIB_SOURCES
     src/core/package_search.cpp
     src/core/process_launch.cpp
     src/core/semver.cpp
+    src/core/sim_clock.cpp
     src/core/sexpr.cpp
     src/core/user_paths.cpp
     src/core/vfs.cpp
     src/script/script_scope.cpp
+    src/script/s7_read.cpp
     src/script/package_load_context.cpp
     src/script/proc_role.cpp
+    src/net/net_schema.cpp
+    src/net/memory_transport.cpp
+    src/net/enet_transport.cpp
+    src/net/conditioned_transport.cpp
+    src/net/secure_random.cpp
+    src/net/secure_transport.cpp
+    src/net/net_message.cpp
+    src/net/net_protocol.cpp
     src/assets/asset_store.cpp
     src/assets/geo_loader.cpp
     src/assets/icon_atlas.cpp
@@ -142,15 +152,21 @@ set(SLOPLIB_SOURCES
     src/assets/texture_anim_loader.cpp
     src/assets/texture_graph.cpp
     src/assets/skeleton_loader.cpp
+    src/render/model_hitboxes.cpp
+    src/render/skin_cut.cpp
     src/assets/anim_loader.cpp
+    src/render/bone_attachment.cpp
     src/particles/particle_sim.cpp
     src/game/app_config.cpp
+    src/game/ui_settings.cpp
     src/map/brush.cpp
     src/map/brush_carve.cpp
     src/map/bsp_analyze.cpp
     src/map/bsp_build.cpp
     src/map/bsp_io.cpp
     src/map/bsp_ray.cpp
+    src/map/bsp_polygon.cpp
+    src/map/pvs_audit.cpp
     src/map/csg_compile.cpp
     src/map/map_script.cpp
     src/map/csg_write.cpp
@@ -179,6 +195,7 @@ set(SLOPLIB_SOURCES
     src/map/radiosity_lights.cpp
     src/map/uv_math.cpp
     src/map/pvs_build.cpp
+    src/map/map_areas.cpp
     src/map/pvs_io.cpp
     src/map/nav_graph.cpp
     src/map/nav_bake.cpp
@@ -209,7 +226,10 @@ target_include_directories(sloplib PUBLIC
     src
     "${CMAKE_BINARY_DIR}/generated"
 )
-target_link_libraries(sloplib PUBLIC raylib s7 Recast)
+target_link_libraries(sloplib PUBLIC raylib s7 Recast enet monocypher)
+if(WIN32)
+    target_link_libraries(sloplib PUBLIC bcrypt)
+endif()
 
 if(MSVC)
     target_compile_options(sloplib PRIVATE /W4 /permissive-)
@@ -223,12 +243,24 @@ add_executable(slopengine
     src/core/frame_perf.cpp
     src/game/user_settings.cpp
     src/game/app.cpp
+    src/game/host_bots.cpp
+    src/game/sim_pipeline.cpp
+    src/game/sim_interpolation.cpp
+    src/net/command_move.cpp
+    src/net/net_rewind.cpp
+    src/net/net_state.cpp
+    src/net/net_session.cpp
+    src/map/player_bodies.cpp
+    src/script/player_target.cpp
+    src/script/net_script.cpp
     src/game/game_state.cpp
+    src/game/net_control.cpp
     src/game/package_cli.cpp
     src/input/action_registry.cpp
     src/input/bind_code.cpp
     src/input/input_module.cpp
     src/camera/camera_module.cpp
+    src/camera/view_recoil.cpp
     src/camera/camera_path_player.cpp
     src/script/camera_path_script.cpp
     src/interact/interact_module.cpp
@@ -241,6 +273,9 @@ add_executable(slopengine
     src/ui/slopui_editor.cpp
     src/physics/physics_world.cpp
     src/physics/physics_module.cpp
+    src/physics/motor_rules.cpp
+    src/physics/ragdoll_pose.cpp
+    src/physics/ragdoll_rig.cpp
     src/physics/sight_module.cpp
     src/navigation/nav_module.cpp
     src/navigation/nav_script.cpp
@@ -252,6 +287,8 @@ add_executable(slopengine
     src/physics/map_collision.cpp
     src/particles/particle_module.cpp
     src/fx/trail.cpp
+    src/fx/tracer.cpp
+    src/fx/tracer_motion.cpp
     src/render/view_sprite_attachment.cpp
     src/render/world_sprite_attachment.cpp
     src/audio/audio_world.cpp
@@ -263,6 +300,7 @@ add_executable(slopengine
     src/map/face_triggers.cpp
     src/map/water_volumes.cpp
     src/map/map_scene.cpp
+    src/map/area_gate_runtime.cpp
     src/game/script_boot.cpp
     src/game/menu_background.cpp
     src/game/loading_session.cpp
@@ -272,15 +310,24 @@ add_executable(slopengine
     src/render/sprite_animator_system.cpp
     src/render/material_anim.cpp
     src/render/animation_systems.cpp
+    src/render/attachment_path.cpp
+    src/render/bone_springs.cpp
     src/render/dynamic_light.cpp
     src/render/dynamic_light_compositing.cpp
     src/render/dynamic_light_shadow_math.cpp
     src/render/dynamic_light_shadows.cpp
+    src/render/gpu_skinning.cpp
     src/render/fx_local_light.cpp
+    src/render/model_cull.cpp
+    src/render/model_lighting.cpp
     src/render/render_debug.cpp
     src/render/render_pass_world.cpp
+    src/render/gpu_timer.cpp
+    src/render/system_perf.cpp
     src/render/render_pass_fp.cpp
     src/render/render_pass_extra_eye.cpp
+    src/render/anti_alias.cpp
+    src/render/msaa_target.cpp
     src/render/post_process.cpp
     src/render/underwater_effect.cpp
     src/render/skybox_world.cpp
@@ -294,6 +341,8 @@ add_executable(slopengine
     src/script/hud_script.cpp
     src/script/post_script.cpp
     src/script/input_script.cpp
+    src/script/bot_script.cpp
+    src/script/motor_script.cpp
     src/script/audio_script.cpp
     src/script/thing_script.cpp
     src/script/save_script.cpp
@@ -338,6 +387,49 @@ else()
     target_compile_options(sloprepl PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
+
+set(SLOPDOCS_EMBED_DIR "${CMAKE_BINARY_DIR}/generated/slopdocs")
+set(SLOPDOCS_EMBED_SOURCES)
+foreach(embed IN ITEMS "prelude.s7;slopdocs_prelude" "theme.css;slopdocs_theme_css" "docs.js;slopdocs_docs_js" "engine-names.txt;slopdocs_engine_names")
+    list(GET embed 0 embedFile)
+    list(GET embed 1 embedSymbol)
+    set(embedInput "${CMAKE_SOURCE_DIR}/tools/slopdocs/${embedFile}")
+    set(embedOutput "${SLOPDOCS_EMBED_DIR}/${embedSymbol}.cpp")
+    add_custom_command(
+        OUTPUT "${embedOutput}"
+        COMMAND "${CMAKE_COMMAND}" -DINPUT=${embedInput} -DOUTPUT=${embedOutput} -DSYMBOL=${embedSymbol}
+                -P "${CMAKE_SOURCE_DIR}/cmake/EmbedFile.cmake"
+        DEPENDS "${embedInput}" "${CMAKE_SOURCE_DIR}/cmake/EmbedFile.cmake"
+        COMMENT "Embedding ${embedFile} into slopdocs"
+        VERBATIM
+    )
+    list(APPEND SLOPDOCS_EMBED_SOURCES "${embedOutput}")
+endforeach()
+
+add_executable(slopdocs
+    tools/slopdocs/main.cpp
+    tools/slopdocs/doc_model.cpp
+    tools/slopdocs/site.cpp
+    tools/slopdocs/html_writer.cpp
+    tools/slopdocs/highlight.cpp
+    tools/slopdocs/shader_doc.cpp
+    tools/slopdocs/shader_pages.cpp
+    tools/slopdocs/asset_counts.cpp
+    tools/slopdocs/data_doc.cpp
+    tools/slopdocs/data_pages.cpp
+    tools/slopdocs/doc_text.cpp
+    tools/slopdocs/script_doc.cpp
+    tools/slopdocs/script_pages.cpp
+    src/script/scheme_harden.cpp
+    ${SLOPDOCS_EMBED_SOURCES}
+)
+target_include_directories(slopdocs PRIVATE tools/slopdocs)
+target_link_libraries(slopdocs PRIVATE sloplib)
+if(MSVC)
+    target_compile_options(slopdocs PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(slopdocs PRIVATE -Wall -Wextra -Wpedantic)
+endif()
 
 add_executable(slopcsg tools/slopcsg/main.cpp)
 target_link_libraries(slopcsg PRIVATE sloplib)
@@ -450,6 +542,30 @@ if(MSVC)
     target_compile_options(slopsprite PRIVATE /W4 /permissive-)
 else()
     target_compile_options(slopsprite PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+add_executable(slopmodel
+    tools/slopmodel/main.cpp
+    tools/slopmodel/camera.cpp
+    tools/slopmodel/editor.cpp
+    tools/slopmodel/browser.cpp
+    tools/slopmodel/outliner.cpp
+    tools/slopmodel/model_draw.cpp
+    tools/slopmodel/world_preview.cpp
+    tools/slopmodel/fp_preview.cpp
+    tools/slopmodel/layout.cpp
+    src/ui/imgui_fonts.cpp
+    src/ui/slopui_theme.cpp
+    src/ui/slopui_theme_data.cpp
+    src/ui/slopui_widgets.cpp
+    src/ui/slopui_tool.cpp
+)
+target_include_directories(slopmodel PRIVATE tools/slopmodel)
+target_link_libraries(slopmodel PRIVATE sloplib rlImGui)
+if(MSVC)
+    target_compile_options(slopmodel PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(slopmodel PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
 add_executable(slopaudio

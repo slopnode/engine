@@ -34,7 +34,7 @@ Each of the `bounces` passes is a stochastic gather rather than a full form-fact
 Two things come out of the bake, both indexed by `.rad` (metadata) with pixels in separate PNGs under `rad/`:
 
 - Lightmap atlases: one UV chart per baked face, packed into a small number of shared atlas textures. Charts store HDR values with Ward-style RGBE8 shared-exponent encoding (see @ref encodergbe) rather than the older tonemapped-LDR path.
-- Light probe grids: two volumetric grids (coarse and fine cell size) of points scattered through walkable space, each storing incident light as a low-order spherical-harmonics fit built from rays traced outward against the already-lit scene. The sun's contribution is added analytically on top rather than relying on those rays to reliably catch it.
+- Light probe grids: two volumetric grids (coarse and fine cell size) of points scattered through walkable space, each storing incident light as an ambient cube: six colors, one for each axis direction, holding the light a surface facing that way would receive. The cube is built from rays traced outward against the already-lit scene. The sun's contribution is added analytically on top rather than relying on those rays to reliably catch it.
 
 # RAD Options {#lighting-rad-options}
 
@@ -93,7 +93,9 @@ Sample count and bounce count compound: with more bounce passes, sample noise fr
 
 Static (BSP) surfaces read their own baked lightmap directly: the renderer looks up the face's chart, samples the atlas texel under that point, and decodes it back to linear irradiance before display.
 
-Dynamic objects (actors, pickups, viewmodel) have no lightmap UVs, so they instead sample the probe grid at their world position: the nearest surrounding probes (fine grid first, falling back to coarse where fine data is missing) are blended together and evaluated toward the surface normal or view direction. This is the same probe data a package can query directly for faux-shading sprites or viewmodels.
+Dynamic objects (actors, pickups, viewmodel) have no lightmap UVs, so they instead sample the probe grid at their world position: the nearest surrounding probes (fine grid first, falling back to coarse where fine data is missing) are blended together. Sprites evaluate that blend toward one direction per sample point. 3D models, including first-person geo, evaluate it per pixel against the surface normal, blending the cube faces the normal points toward, then add direct light from up to four nearby static point and spot lights. Those lights use the same falloff and wrap as the bake, are checked for line of sight from the model, and fade in and out as the model moves so they don't pop. First-person geo takes its probe sample and line of sight from the player's eye rather than its own bounds, since a view model held against a wall or into a corner can reach through it into solid space where there are no probes, while the eye always stays in open space. This is the same probe data a package can query directly for faux-shading sprites or viewmodels. A model keeps its probe sample and light selection for 50 milliseconds, staggered per entity, unless it moves more than a quarter metre, so a crowd of actors is relit twenty times a second rather than every frame while the fades still run on real time.
+
+CPU particles take one probe sample plus the dynamic light overlay at their position, but not every frame. A particle is lit on the first frame it is in view and then every fourth frame, staggered so the work spreads evenly. Once a particle has stuck to the map its probe sample is kept and only the dynamic overlay is refreshed. Particles outside the view frustum are neither lit nor drawn.
 
 <table>
 <tr>

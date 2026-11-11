@@ -1,6 +1,7 @@
 #include "render/skybox_render.hpp"
 
 #include "map/lightmap.hpp"
+#include "render/gpu_ready.hpp"
 
 #include <raymath.h>
 #include <rlgl.h>
@@ -30,7 +31,7 @@ Mesh& skyboxCubeMesh() {
     static Mesh mesh = GenMeshCube(1.0f, 1.0f, 1.0f);
     static bool uploaded = false;
     if (!uploaded) {
-        UploadMesh(&mesh, false);
+        uploadMeshIfGpu(&mesh, false);
         uploaded = true;
     }
     return mesh;

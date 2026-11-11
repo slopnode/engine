@@ -235,6 +235,13 @@ bool applyMaterialField(const Sexpr& form, MaterialAsset& asset, SexprParseError
         }
         return true;
     }
+    if (tag == "deform-mask") {
+        if (!readStringField(form, asset.deformMask)) {
+            error = {"(deform-mask \"path\")", form.line, form.column};
+            return false;
+        }
+        return true;
+    }
     if (tag == "base-color") {
         float rgba[4] = {1.0f, 1.0f, 1.0f, 1.0f};
         if (!readNumberField(form, 4, rgba)) {
@@ -499,6 +506,13 @@ Material createRaylibMaterial(
         }
     }
 
+    if (!asset.deformMask.empty() && resolveTexture) {
+        const Texture2D mask = resolveTexture(asset.deformMask);
+        if (mask.id != 0) {
+            SetMaterialTexture(&material, MATERIAL_MAP_HEIGHT, mask);
+        }
+    }
+
     if (asset.emissionPower > 0.0f) {
         material.maps[MATERIAL_MAP_SPECULAR].color = asset.emissionColor;
     } else {
@@ -609,6 +623,9 @@ std::string serializeMaterialAsset(const MaterialAsset& asset) {
     }
     if (!asset.emissionTexture.empty()) {
         out << "  (emission " << quoteMaterialString(asset.emissionTexture) << ")\n";
+    }
+    if (!asset.deformMask.empty()) {
+        out << "  (deform-mask " << quoteMaterialString(asset.deformMask) << ")\n";
     }
     if (asset.emissionColor.r != defaults.emissionColor.r || asset.emissionColor.g != defaults.emissionColor.g ||
         asset.emissionColor.b != defaults.emissionColor.b || asset.emissionColor.a != defaults.emissionColor.a) {

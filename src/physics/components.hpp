@@ -1,5 +1,7 @@
 #pragma once
 
+#include <raylib.h>
+
 namespace slopengine {
 
 enum class CharacterHull : unsigned char {
@@ -21,6 +23,7 @@ struct CharacterMotor {
     float radius = 0.3f;   /**< Capsule radius, or box half-width/depth. */
     float height = 0.88f;   /**< Cylinder height between hemispheres (capsule), or box body height. */
     float moveSpeed = 6.0f;
+    float speedScale = 1.0f;
     float gravity = 9.81f;
     float eyeHeight = 0.8f; /**< Camera offset above physics feet. */
     float wishX = 0.0f;     /**< Horizontal wish in world X (filled from input). */
@@ -79,9 +82,30 @@ inline float characterCenterOffset(const CharacterMotor& motor) {
  */
 struct Actor {};
 
+struct PlayerBody {};
+
+struct MapPlayerStart {
+    Vector3 position{0.0f, 0.1f, 0.0f};
+    float yaw = 0.0f;
+    float pitch = 0.0f;
+    CharacterMotor motor{};
+};
+
 /** Tag: dead actor kept for visuals; no physics or combat collision.
  *  @ingroup physics_components
  */
 struct ActorCorpse {};
+
+/** Entity posed each frame from a PhysicsWorld debris box, removed after @p lifetime seconds.
+ *  @ingroup physics_components
+ */
+struct DebrisBody {
+    float lifetime = 20.0f;
+    float age = 0.0f;
+};
+
+struct PropCollision {
+    unsigned int boxes = 0;
+};
 
 }

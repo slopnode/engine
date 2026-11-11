@@ -1,0 +1,404 @@
+#include "net/net_state.hpp"
+
+#include "core/sim_clock.hpp"
+#include "map/thing.hpp"
+#include "map/thing_def_registry.hpp"
+
+#include <algorithm>
+#include <charconv>
+
+namespace slopengine {
+
+namespace {
+
+std::vector<NetValue> defaultsFor(const NetScope& scope) {
+    std::vector<NetValue> values;
+    for (const NetField* field : netSchema().fieldsIn(scope)) {
+        values.push_back(field->defaultValue);
+    }
+    return values;
+}
+
+std::vector<NetScope> thingScopes(flecs::entity thing) {
+    std::vector<NetScope> scopes;
+    if (!thing.has<ThingTypeRef>()) {
+        return scopes;
+    }
+    const ThingDef* def = thingDefRegistry().find(thing.get<ThingTypeRef>().type);
+    if (def == nullptr) {
+        return scopes;
+    }
+    for (const std::string& tag : def->tags) {
+        scopes.push_back(NetScope{NetScopeKind::Thing, tag});
+    }
+    return scopes;
+}
+
+const NetField* thingField(flecs::entity thing, std::string_view name) {
+    for (const NetScope& scope : thingScopes(thing)) {
+        if (const NetField* field = netSchema().find(scope, name)) {
+            return field;
+        }
+    }
+    return nullptr;
+}
+
+NetThingFields& thingFields(flecs::entity thing) {
+    if (!thing.has<NetThingFields>()) {
+        NetThingFields fields{};
+        for (const NetScope& scope : thingScopes(thing)) {
+            for (const NetField* field : netSchema().fieldsIn(scope)) {
+                if (std::find(fields.fieldIds.begin(), fields.fieldIds.end(), field->id) != fields.fieldIds.end()) {
+                    continue;
+                }
+                fields.fieldIds.push_back(field->id);
+                fields.values.push_back(field->defaultValue);
+            }
+        }
+        thing.set<NetThingFields>(std::move(fields));
+    }
+    return thing.get_mut<NetThingFields>();
+}
+
+flecs::entity lookupThingEntity(const flecs::world& world, std::string_view id) {
+    const std::string key(id);
+    flecs::entity entity = world.lookup(key.c_str());
+    if (entity.is_valid()) {
+        return entity;
+    }
+    std::uint64_t raw = 0;
+    const auto [end, ec] = std::from_chars(id.data(), id.data() + id.size(), raw);
+    if (ec != std::errc{} || end != id.data() + id.size() || raw == 0) {
+        return {};
+    }
+    const flecs::entity byId = world.entity(static_cast<flecs::entity_t>(raw));
+    return byId.is_alive() ? byId : flecs::entity{};
+}
+
+} // namespace
+
+void registerNetState(flecs::world& world) {
+    world.component<NetStore>();
+    world.component<NetThingFields>();
+    world.component<NetEventQueue>();
+    world.set<NetEventQueue>({});
+    world.component<NetEffectQueue>();
+    world.set<NetEffectQueue>({});
+    world.component<NetPrediction>();
+    world.set<NetPrediction>({});
+    world.component<NetSpawnRecipe>();
+    world.component<NetSevered>();
+    world.component<NetAttachments>();
+    world.component<NetSpawned>();
+    world.component<NetStandIn>();
+    world.component<NetHostStandIn>();
+    world.component<NetIdentity>();
+    world.set<NetIdentity>({});
+    world.component<NetRoster>();
+    world.set<NetRoster>({});
+    world.component<NetProfiles>();
+    world.set<NetProfiles>({});
+    world.component<NetRejoins>();
+    world.set<NetRejoins>({});
+    NetStore store{};
+    store.players.push_back(NetPlayerRecord{kLocalNetPlayerId, defaultsFor(NetScope{NetScopeKind::Player, {}})});
+    store.session = defaultsFor(NetScope{NetScopeKind::Session, {}});
+    world.set<NetStore>(std::move(store));
+}
+
+void queueNetEffect(flecs::world& world, flecs::entity entity, NetEffect effect) {
+    if (!world.has<NetEffectQueue>() || !entity.is_valid()) {
+        return;
+    }
+    NetEffectQueue& queue = world.get_mut<NetEffectQueue>();
+    if (queue.forward && queue.pending.size() < kMaxNetEffectsPerMessage * 4) {
+        queue.pending.emplace_back(entity.id(), std::move(effect));
+    }
+}
+
+namespace {
+
+void overlayNetProfile(const flecs::world& world, NetPlayerRecord& record) {
+    if (!world.has<NetProfiles>()) {
+        return;
+    }
+    for (const auto& [id, values] : world.get<NetProfiles>().players) {
+        if (id != record.id) {
+            continue;
+        }
+        for (const auto& [slot, value] : values) {
+            if (static_cast<std::size_t>(slot) < record.values.size()) {
+                record.values[static_cast<std::size_t>(slot)] = value;
+            }
+        }
+    }
+}
+
+} // namespace
+
+void resetNetState(flecs::world& world) {
+    if (!world.has<NetStore>()) {
+        return;
+    }
+    NetStore& store = world.get_mut<NetStore>();
+    for (NetPlayerRecord& player : store.players) {
+        player.values = defaultsFor(NetScope{NetScopeKind::Player, {}});
+        overlayNetProfile(world, player);
+    }
+    store.session = defaultsFor(NetScope{NetScopeKind::Session, {}});
+}
+
+void resetNetSessionState(flecs::world& world) {
+    world.remove<SimRemote>();
+    world.remove<SimShared>();
+    world.remove<NetSessionLimits>();
+    world.set<NetEventQueue>({});
+    world.set<NetEffectQueue>({});
+    world.set<NetPrediction>({});
+    world.set<NetIdentity>({});
+    world.set<NetRoster>({});
+    world.set<NetProfiles>({});
+    world.set<NetRejoins>({});
+    NetStore store{};
+    store.players.push_back(NetPlayerRecord{kLocalNetPlayerId, defaultsFor(NetScope{NetScopeKind::Player, {}})});
+    store.session = defaultsFor(NetScope{NetScopeKind::Session, {}});
+    world.set<NetStore>(std::move(store));
+}
+
+NetTravelRecord netTravelRecord(flecs::world& world, std::string_view id) {
+    NetTravelRecord record;
+    NetTarget target;
+    if (!resolveNetTarget(world, id, target) || target.kind != NetScopeKind::Player) {
+        return record;
+    }
+    for (const auto& [field, value] : netTargetFields(world, target)) {
+        if (field->travel) {
+            record.emplace_back(field->name, *value);
+        }
+    }
+    return record;
+}
+
+const NetTravelRecord* findNetRejoin(const flecs::world& world, std::string_view id) {
+    if (!world.has<NetRejoins>()) {
+        return nullptr;
+    }
+    for (const auto& [player, record] : world.get<NetRejoins>().players) {
+        if (player == id) {
+            return &record;
+        }
+    }
+    return nullptr;
+}
+
+void setNetRejoin(flecs::world& world, std::string_view id, NetTravelRecord record) {
+    clearNetRejoin(world, id);
+    if (world.has<NetRejoins>()) {
+        world.get_mut<NetRejoins>().players.emplace_back(std::string(id), std::move(record));
+    }
+}
+
+void clearNetRejoin(flecs::world& world, std::string_view id) {
+    if (!world.has<NetRejoins>()) {
+        return;
+    }
+    auto& players = world.get_mut<NetRejoins>().players;
+    std::erase_if(players, [&](const auto& entry) { return entry.first == id; });
+}
+
+std::string netDisplayName(const flecs::world& world, std::string_view id) {
+    if (world.has<NetRoster>()) {
+        for (const NetRosterEntry& entry : world.get<NetRoster>().entries) {
+            if (entry.player == id) {
+                return entry.name;
+            }
+        }
+    }
+    return std::string(id);
+}
+
+void addNetPlayer(flecs::world& world, std::string_view id) {
+    if (!world.has<NetStore>() || findNetPlayer(world, id) != nullptr) {
+        return;
+    }
+    NetPlayerRecord record{std::string(id), defaultsFor(NetScope{NetScopeKind::Player, {}})};
+    overlayNetProfile(world, record);
+    world.get_mut<NetStore>().players.push_back(std::move(record));
+}
+
+bool setNetProfile(flecs::world& world, std::string_view id, const NetProfile& profile) {
+    if (!world.has<NetProfiles>()) {
+        return false;
+    }
+    const std::vector<const NetField*> fields = netSchema().profileFields();
+    std::vector<std::pair<int, NetValue>> values;
+    for (const auto& [index, value] : profile.fields) {
+        if (index >= 0 && static_cast<std::size_t>(index) < fields.size()) {
+            values.emplace_back(fields[static_cast<std::size_t>(index)]->slot, value);
+        }
+    }
+    auto& players = world.get_mut<NetProfiles>().players;
+    auto found = std::find_if(players.begin(), players.end(), [&](const auto& entry) { return entry.first == id; });
+    if (found == players.end()) {
+        players.emplace_back(std::string(id), std::vector<std::pair<int, NetValue>>{});
+        found = std::prev(players.end());
+    }
+    if (found->second == values) {
+        return false;
+    }
+    found->second = std::move(values);
+    if (world.has<NetStore>()) {
+        for (NetPlayerRecord& record : world.get_mut<NetStore>().players) {
+            if (record.id == id) {
+                overlayNetProfile(world, record);
+            }
+        }
+    }
+    return true;
+}
+
+void clearNetProfile(flecs::world& world, std::string_view id) {
+    if (!world.has<NetProfiles>()) {
+        return;
+    }
+    auto& players = world.get_mut<NetProfiles>().players;
+    players.erase(
+        std::remove_if(players.begin(), players.end(), [&](const auto& entry) { return entry.first == id; }),
+        players.end());
+}
+
+void removeNetPlayer(flecs::world& world, std::string_view id) {
+    if (!world.has<NetStore>() || id == kLocalNetPlayerId) {
+        return;
+    }
+    std::vector<NetPlayerRecord>& players = world.get_mut<NetStore>().players;
+    players.erase(
+        std::remove_if(players.begin(), players.end(), [&](const NetPlayerRecord& record) { return record.id == id; }),
+        players.end());
+}
+
+void resetNetPlayer(flecs::world& world, std::string_view id) {
+    if (!world.has<NetStore>()) {
+        return;
+    }
+    for (NetPlayerRecord& record : world.get_mut<NetStore>().players) {
+        if (record.id == id) {
+            record.values = defaultsFor(NetScope{NetScopeKind::Player, {}});
+            overlayNetProfile(world, record);
+        }
+    }
+}
+
+const NetPlayerRecord* findNetPlayer(const flecs::world& world, std::string_view id) {
+    if (!world.has<NetStore>()) {
+        return nullptr;
+    }
+    for (const NetPlayerRecord& record : world.get<NetStore>().players) {
+        if (record.id == id) {
+            return &record;
+        }
+    }
+    return nullptr;
+}
+
+void resetNetMapFields(flecs::world& world) {
+    if (!world.has<NetStore>()) {
+        return;
+    }
+    NetStore& store = world.get_mut<NetStore>();
+    const std::vector<const NetField*> fields = netSchema().fieldsIn(NetScope{NetScopeKind::Player, {}});
+    for (NetPlayerRecord& player : store.players) {
+        for (const NetField* field : fields) {
+            if (!field->travel && static_cast<std::size_t>(field->slot) < player.values.size()) {
+                player.values[static_cast<std::size_t>(field->slot)] = field->defaultValue;
+            }
+        }
+        overlayNetProfile(world, player);
+    }
+}
+
+bool resolveNetTarget(const flecs::world& world, std::string_view id, NetTarget& out) {
+    if (!world.has<NetStore>()) {
+        return false;
+    }
+    const NetStore& store = world.get<NetStore>();
+    for (std::size_t i = 0; i < store.players.size(); ++i) {
+        if (store.players[i].id == id) {
+            out = NetTarget{NetScopeKind::Player, i, {}};
+            return true;
+        }
+    }
+    const flecs::entity thing = lookupThingEntity(world, id);
+    if (!thing.is_valid() || !thing.has<ThingTypeRef>()) {
+        return false;
+    }
+    out = NetTarget{NetScopeKind::Thing, 0, thing};
+    return true;
+}
+
+NetValue* findNetValue(flecs::world& world, const NetTarget& target, std::string_view name, const NetField** fieldOut) {
+    if (!world.has<NetStore>()) {
+        return nullptr;
+    }
+    NetStore& store = world.get_mut<NetStore>();
+    const NetField* field = nullptr;
+    NetValue* value = nullptr;
+    switch (target.kind) {
+    case NetScopeKind::Session:
+        field = netSchema().find(NetScope{NetScopeKind::Session, {}}, name);
+        if (field != nullptr && static_cast<std::size_t>(field->slot) < store.session.size()) {
+            value = &store.session[static_cast<std::size_t>(field->slot)];
+        }
+        break;
+    case NetScopeKind::Player:
+        field = netSchema().find(NetScope{NetScopeKind::Player, {}}, name);
+        if (field != nullptr && target.player < store.players.size()) {
+            std::vector<NetValue>& values = store.players[target.player].values;
+            if (static_cast<std::size_t>(field->slot) < values.size()) {
+                value = &values[static_cast<std::size_t>(field->slot)];
+            }
+        }
+        break;
+    case NetScopeKind::Thing:
+        if (!target.thing.is_alive()) {
+            break;
+        }
+        field = thingField(target.thing, name);
+        if (field != nullptr) {
+            NetThingFields& fields = thingFields(target.thing);
+            const auto it = std::find(fields.fieldIds.begin(), fields.fieldIds.end(), field->id);
+            if (it != fields.fieldIds.end()) {
+                value = &fields.values[static_cast<std::size_t>(it - fields.fieldIds.begin())];
+            }
+        }
+        break;
+    }
+    if (fieldOut != nullptr) {
+        *fieldOut = value != nullptr ? field : nullptr;
+    }
+    return value;
+}
+
+std::vector<std::pair<const NetField*, const NetValue*>> netTargetFields(flecs::world& world, const NetTarget& target) {
+    std::vector<std::pair<const NetField*, const NetValue*>> out;
+    std::vector<const NetField*> fields;
+    if (target.kind == NetScopeKind::Thing) {
+        for (const NetScope& scope : thingScopes(target.thing)) {
+            for (const NetField* field : netSchema().fieldsIn(scope)) {
+                fields.push_back(field);
+            }
+        }
+    } else {
+        fields = netSchema().fieldsIn(NetScope{target.kind, {}});
+    }
+    for (const NetField* field : fields) {
+        const NetField* resolved = nullptr;
+        const NetValue* value = findNetValue(world, target, field->name, &resolved);
+        if (value != nullptr && resolved == field) {
+            out.emplace_back(field, value);
+        }
+    }
+    return out;
+}
+
+}

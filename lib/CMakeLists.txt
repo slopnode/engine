@@ -174,3 +174,12 @@ set(RECASTNAVIGATION_DEMO OFF CACHE BOOL "" FORCE)
 set(RECASTNAVIGATION_TESTS OFF CACHE BOOL "" FORCE)
 set(RECASTNAVIGATION_EXAMPLES OFF CACHE BOOL "" FORCE)
 add_subdirectory(recastnavigation)
+
+add_subdirectory(enet)
+target_include_directories(enet PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/enet/include)
+if(WIN32 AND NOT MINGW)
+    target_link_libraries(enet PUBLIC winmm ws2_32)
+endif()
+
+add_library(monocypher STATIC monocypher/src/monocypher.c)
+target_include_directories(monocypher PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/monocypher/src)

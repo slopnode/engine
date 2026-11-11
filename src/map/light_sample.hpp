@@ -33,13 +33,13 @@ struct ProbeCellHash {
     }
 };
 
-struct ProbeSH {
-    Vector3 coeff[4]{};
+struct ProbeCube {
+    Vector3 face[kProbeCubeFaces]{};
 };
 
 struct ProbeGrid {
     float cellSize = 4.0f;
-    std::unordered_map<ProbeCell, ProbeSH, ProbeCellHash> probesByCell;
+    std::unordered_map<ProbeCell, ProbeCube, ProbeCellHash> probesByCell;
 };
 
 /** Runtime baked lighting: rad charts, atlases, and surface BVH for probes. */
@@ -133,5 +133,9 @@ std::optional<Color> sampleLightProbe(
     const MapLighting& lighting,
     Vector3 point,
     Vector3 direction);
+
+std::optional<ProbeCube> sampleLightProbeCube(const MapLighting& lighting, Vector3 point);
+
+Vector3 evaluateProbeCube(const ProbeCube& cube, Vector3 normal);
 
 }

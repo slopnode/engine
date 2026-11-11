@@ -51,6 +51,22 @@ struct SettingsUiState {
     ControlsSettings controlsDraft{};
     int rebindingAction = -1;
     bool rebindingWaitMouseRelease = false;
+    bool hostOpen = false;
+    bool hostPending = false;
+    int hostSession = 0;
+    int hostMap = 0;
+    int hostPort = 27960;
+    int hostMaxPlayers = 0;
+    int hostBots = 0;
+    int hostBotBehavior = 0;
+    bool joinOpen = false;
+    bool joinPending = false;
+    char joinAddress[128] = {};
+    bool profileOpen = false;
+    char profileName[64] = {};
+    std::vector<std::string> profileValues;
+    bool aboutOpen = false;
+    bool creditsOpen = false;
 };
 
 /** Debug overlay toggles and entity inspector selection.
@@ -66,6 +82,7 @@ struct DebugUiState {
     bool showBspCurrentLeafOnly = false;
     bool showSpriteMasks = false;
     bool showSpriteAim = false;
+    bool showSkeletons = false;
     bool showLightProbesFine = false;
     bool showLightProbesCoarse = false;
     bool showLightProbeSampleTaps = false;
@@ -81,6 +98,7 @@ struct DebugUiState {
     bool showPerformance = false;
     bool themeEditorOpen = false;
     bool unlit = false;
+    bool mapMeshCull = true;
     bool noclip = false;
     bool freeCamera = false;
     bool hideHud = false;

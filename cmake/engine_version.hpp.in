@@ -2,3 +2,6 @@
 
 /** Build-configured engine version, read from the VERSION file at configure time. */
 inline constexpr const char* kSlopengineVersion = "@SLOPENGINE_VERSION@";
+
+/** CMake build type the engine was configured with. */
+inline constexpr const char* kSlopengineBuildType = "@CMAKE_BUILD_TYPE@";

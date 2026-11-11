@@ -1,7 +1,9 @@
 #include "physics/sight_module.hpp"
 
 #include "camera/components.hpp"
+#include "core/sim_clock.hpp"
 #include "game/game_state.hpp"
+#include "map/area_gate_runtime.hpp"
 #include "map/bsp.hpp"
 #include "map/pvs.hpp"
 #include "physics/components.hpp"
@@ -98,7 +100,8 @@ bool pvsClear(flecs::world& world, Vector3 from, Vector3 to) {
     if (!world.has<MapPvs>() || !world.has<MapBsp>()) {
         return true;
     }
-    return pvsVisiblePoints(world.get<MapBsp>().tree, world.get<MapPvs>().pvs, from, to);
+    const AreaGate gate = areaGateFromPoint(world, from);
+    return pvsVisiblePoints(world.get<MapBsp>().tree, world.get<MapPvs>().pvs, from, to, &gate);
 }
 
 bool packageAllowsSight(
@@ -278,7 +281,7 @@ void registerSightModule(flecs::world& world) {
                 scanObserver(world, scheme, physics, observer, sight, losBudget);
             }
             state.cursor = (state.cursor + 1) % count;
-        });
+        }).add<SimSystem>();
 }
 
 bool actorCanSee(flecs::world& world, std::string_view fromId, std::string_view toId) {

@@ -50,36 +50,33 @@ int compareSemVer(const SemVer& a, const SemVer& b) {
     return 0;
 }
 
-bool satisfiesVersionConstraint(std::string_view version, std::string_view constraint) {
-    if (constraint.empty()) {
-        return true;
-    }
+namespace {
 
+bool satisfiesClause(const SemVer& have, std::string_view clause) {
     std::string_view op = "=";
-    std::string_view rest = constraint;
-    if (constraint.rfind(">=", 0) == 0) {
+    std::string_view rest = clause;
+    if (clause.rfind(">=", 0) == 0) {
         op = ">=";
-        rest = constraint.substr(2);
-    } else if (constraint.rfind("<=", 0) == 0) {
+        rest = clause.substr(2);
+    } else if (clause.rfind("<=", 0) == 0) {
         op = "<=";
-        rest = constraint.substr(2);
-    } else if (constraint.rfind(">", 0) == 0) {
+        rest = clause.substr(2);
+    } else if (clause.rfind(">", 0) == 0) {
         op = ">";
-        rest = constraint.substr(1);
-    } else if (constraint.rfind("<", 0) == 0) {
+        rest = clause.substr(1);
+    } else if (clause.rfind("<", 0) == 0) {
         op = "<";
-        rest = constraint.substr(1);
-    } else if (constraint.rfind("=", 0) == 0) {
-        rest = constraint.substr(1);
+        rest = clause.substr(1);
+    } else if (clause.rfind("=", 0) == 0) {
+        rest = clause.substr(1);
     }
 
-    const auto have = parseSemVer(version);
     const auto want = parseSemVer(rest);
-    if (!have || !want) {
+    if (!want) {
         return false;
     }
 
-    const int cmp = compareSemVer(*have, *want);
+    const int cmp = compareSemVer(have, *want);
     if (op == ">=") {
         return cmp >= 0;
     }
@@ -93,6 +90,44 @@ bool satisfiesVersionConstraint(std::string_view version, std::string_view const
         return cmp < 0;
     }
     return cmp == 0;
+}
+
+bool isClauseSeparator(char c) {
+    return c == ',' || std::isspace(static_cast<unsigned char>(c)) != 0;
+}
+
+}
+
+bool satisfiesVersionConstraint(std::string_view version, std::string_view constraint) {
+    if (constraint.empty()) {
+        return true;
+    }
+
+    const auto have = parseSemVer(version);
+    if (!have) {
+        return false;
+    }
+
+    bool sawClause = false;
+    std::size_t pos = 0;
+    while (pos < constraint.size()) {
+        while (pos < constraint.size() && isClauseSeparator(constraint[pos])) {
+            ++pos;
+        }
+        if (pos >= constraint.size()) {
+            break;
+        }
+        std::size_t end = pos;
+        while (end < constraint.size() && !isClauseSeparator(constraint[end])) {
+            ++end;
+        }
+        if (!satisfiesClause(*have, constraint.substr(pos, end - pos))) {
+            return false;
+        }
+        sawClause = true;
+        pos = end;
+    }
+    return sawClause;
 }
 
 }

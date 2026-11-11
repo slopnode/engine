@@ -151,6 +151,12 @@ GraphicsSettings UserSettings::loadGraphicsOrDefault(const std::filesystem::path
             }
         } else if (key == "vsync") {
             parseBool(value, graphics.vsync);
+        } else if (key == "msaa") {
+            parseInt(value, graphics.msaaSamples);
+        } else if (key == "anti_aliasing") {
+            if (const auto mode = antiAliasFromId(value)) {
+                graphics.antiAliasing = *mode;
+            }
         } else if (key == "dynamic_lights") {
             parseBool(value, graphics.dynamicLights);
         } else if (key == "dynamic_light_shadows") {
@@ -169,6 +175,10 @@ GraphicsSettings UserSettings::loadGraphicsOrDefault(const std::filesystem::path
     }
     if (graphics.height < 360) {
         graphics.height = 360;
+    }
+    if (graphics.msaaSamples != 2 && graphics.msaaSamples != 4 && graphics.msaaSamples != 8 &&
+        graphics.msaaSamples != 16) {
+        graphics.msaaSamples = 0;
     }
     graphics.maxDynamicLights =
         std::clamp(graphics.maxDynamicLights, 0, kMaxDynamicLights);
@@ -243,11 +253,25 @@ bool UserSettings::save() const {
            << "height=" << graphics.height << '\n'
            << "mode=" << windowModeId(graphics.mode) << '\n'
            << "vsync=" << (graphics.vsync ? "1" : "0") << '\n'
+           << "msaa=" << graphics.msaaSamples << '\n'
+           << "anti_aliasing=" << antiAliasId(graphics.antiAliasing) << '\n'
            << "dynamic_lights=" << (graphics.dynamicLights ? "1" : "0") << '\n'
            << "dynamic_light_shadows=" << (graphics.dynamicLightShadows ? "1" : "0") << '\n'
            << "max_dynamic_lights=" << graphics.maxDynamicLights << '\n'
            << "max_shadowed_dynamic_lights=" << graphics.maxShadowedDynamicLights << '\n'
            << "shadow_map_resolution=" << graphics.shadowMapResolution << "\n\n"
+           << "[ui]\n"
+           << "theme=" << ui.theme << '\n'
+           << "join_address=" << ui.joinAddress << '\n'
+           << "player_name=" << ui.playerName << "\n\n";
+    if (!ui.profileValues.empty()) {
+        output << "[profile]\n";
+        for (const auto& [key, value] : ui.profileValues) {
+            output << key << '=' << value << '\n';
+        }
+        output << '\n';
+    }
+    output
            << "[controls]\n";
 
     for (int i = 0; i < static_cast<int>(controls.binds.size()); ++i) {

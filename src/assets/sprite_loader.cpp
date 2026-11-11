@@ -1,4 +1,5 @@
 #include "assets/sprite_loader.hpp"
+#include "render/gpu_ready.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -809,7 +810,7 @@ SpriteAtlas buildSpriteAtlas(
             partMaskImage.height = hitmask.height;
             partMaskImage.mipmaps = 1;
             partMaskImage.format = PIXELFORMAT_UNCOMPRESSED_GRAYSCALE;
-            Texture2D partMaskTex = LoadTextureFromImage(partMaskImage);
+            Texture2D partMaskTex = loadTextureFromImageIfGpu(partMaskImage);
             if (partMaskTex.id != 0) {
                 SetTextureWrap(partMaskTex, TEXTURE_WRAP_CLAMP);
                 SetTextureFilter(partMaskTex, TEXTURE_FILTER_POINT);
@@ -826,7 +827,7 @@ SpriteAtlas buildSpriteAtlas(
                 if (brightImage.data != nullptr) {
                     ImageFormat(&brightImage, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
                     if (brightImage.width == image.width && brightImage.height == image.height) {
-                        Texture2D brightTex = LoadTextureFromImage(brightImage);
+                        Texture2D brightTex = loadTextureFromImageIfGpu(brightImage);
                         if (brightTex.id != 0) {
                             SetTextureWrap(brightTex, TEXTURE_WRAP_CLAMP);
                             SetTextureFilter(brightTex, TEXTURE_FILTER_POINT);
@@ -863,7 +864,7 @@ SpriteAtlas buildSpriteAtlas(
 
     atlas.textures.reserve(shelves.size());
     for (ShelfAtlas& shelfImage : shelves) {
-        Texture2D texture = LoadTextureFromImage(shelfImage.image);
+        Texture2D texture = loadTextureFromImageIfGpu(shelfImage.image);
         if (texture.id != 0) {
             SetTextureWrap(texture, TEXTURE_WRAP_CLAMP);
             SetTextureFilter(texture, TEXTURE_FILTER_POINT);

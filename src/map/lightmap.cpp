@@ -1,9 +1,11 @@
 #include "map/lightmap.hpp"
 
+#include "core/frame_counters.hpp"
 #include "map/uv_math.hpp"
 
 #include <rlgl.h>
 #include "external/glad.h"
+#include "render/gpu_ready.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -621,6 +623,26 @@ Vector3 decodeRgbe(Color pixel) {
     };
 }
 
+std::array<Color, kProbeCubeFaces> probeCubeFromLegacySh(const std::array<Color, 4>& shRgbe) {
+    Vector3 coeff[4];
+    for (std::size_t i = 0; i < 4; ++i) {
+        coeff[i] = decodeRgbe(shRgbe[i]);
+    }
+    std::array<Color, kProbeCubeFaces> cube{};
+    for (std::size_t axis = 0; axis < 3; ++axis) {
+        const Vector3 dc = coeff[0];
+        const Vector3 lobe = coeff[axis + 1];
+        for (std::size_t side = 0; side < 2; ++side) {
+            const float sign = side == 0 ? 1.0f : -1.0f;
+            cube[axis * 2 + side] = encodeRgbe(
+                std::max(0.0f, dc.x + sign * lobe.x * (2.0f / 3.0f)),
+                std::max(0.0f, dc.y + sign * lobe.y * (2.0f / 3.0f)),
+                std::max(0.0f, dc.z + sign * lobe.z * (2.0f / 3.0f)));
+        }
+    }
+    return cube;
+}
+
 Color linearIrradianceToDisplayColor(float r, float g, float b) {
     const auto tonemap = [](float value) {
         return static_cast<unsigned char>(
@@ -677,8 +699,8 @@ bool writeRadFile(const std::filesystem::path& path, const RadFile& rad) {
             writer.writePod(probe.cellX);
             writer.writePod(probe.cellY);
             writer.writePod(probe.cellZ);
-            for (const Color& term : probe.shRgbe) {
-                writer.writePod(term);
+            for (const Color& face : probe.cubeRgbe) {
+                writer.writePod(face);
             }
         }
     };
@@ -706,7 +728,7 @@ std::optional<RadFile> readRadBytes(std::span<const std::byte> data) {
     if (magic != kRadMagic
         || (version != kRadVersionLegacy && version != kRadVersionPrevious
             && version != kRadVersionGroups && version != kRadVersionProbes
-            && version != kRadVersion)) {
+            && version != kRadVersionRotation && version != kRadVersion)) {
         return std::nullopt;
     }
 
@@ -767,7 +789,7 @@ std::optional<RadFile> readRadBytes(std::span<const std::byte> data) {
     }
 
     if (version >= kRadVersionProbes) {
-        auto readProbeGrid = [&reader](LightProbeGridInfo& grid) -> bool {
+        auto readProbeGrid = [&reader, version](LightProbeGridInfo& grid) -> bool {
             if (!reader.readPod(grid.cellSize)) {
                 return false;
             }
@@ -781,11 +803,21 @@ std::optional<RadFile> readRadBytes(std::span<const std::byte> data) {
                     || !reader.readPod(probe.cellZ)) {
                     return false;
                 }
-                for (Color& term : probe.shRgbe) {
+                if (version >= kRadVersionAmbientCube) {
+                    for (Color& face : probe.cubeRgbe) {
+                        if (!reader.readPod(face)) {
+                            return false;
+                        }
+                    }
+                    continue;
+                }
+                std::array<Color, 4> shRgbe{};
+                for (Color& term : shRgbe) {
                     if (!reader.readPod(term)) {
                         return false;
                     }
                 }
+                probe.cubeRgbe = probeCubeFromLegacySh(shRgbe);
             }
             return true;
         };
@@ -817,20 +849,23 @@ std::optional<RadFile> readRadFile(const std::filesystem::path& path) {
 Shader loadLightmapShader(AssetStore& assets, int& useLightmapLoc, int& emissionPowerLoc) {
     useLightmapLoc = -1;
     emissionPowerLoc = -1;
-    const std::string vert = assets.getShaderSource("default/lightmap_vert");
+    const std::string vert = assets.getModelShaderSource("default/lightmap_vert");
     const std::string frag = assets.getShaderSource("default/lightmap_frag");
     if (vert.empty() || frag.empty()) {
         TraceLog(LOG_WARNING, "MAP: missing lightmap shaders");
         return {};
     }
-    Shader shader = LoadShaderFromMemory(vert.c_str(), frag.c_str());
+    Shader shader = loadShaderFromMemoryIfGpu(vert.c_str(), frag.c_str());
     if (shader.id == 0) {
-        TraceLog(LOG_WARNING, "MAP: failed to compile lightmap shaders");
+        if (gpuReady()) {
+            TraceLog(LOG_WARNING, "MAP: failed to compile lightmap shaders");
+        }
         return {};
     }
     shader.locs[SHADER_LOC_MAP_ALBEDO] = GetShaderLocation(shader, "texture0");
     shader.locs[SHADER_LOC_MAP_METALNESS] = GetShaderLocation(shader, "texture1");
     shader.locs[SHADER_LOC_MAP_EMISSION] = GetShaderLocation(shader, "texture5");
+    shader.locs[SHADER_LOC_MAP_HEIGHT] = GetShaderLocation(shader, "deformMask");
     shader.locs[SHADER_LOC_COLOR_DIFFUSE] = GetShaderLocation(shader, "colDiffuse");
     shader.locs[SHADER_LOC_COLOR_SPECULAR] = GetShaderLocation(shader, "colSpecular");
     emissionPowerLoc = GetShaderLocation(shader, "emissionPower");
@@ -899,7 +934,7 @@ Shader loadSkyShader(AssetStore& assets, const char* vertPath, const char* fragP
     if (vert.empty() || frag.empty()) {
         return {};
     }
-    return LoadShaderFromMemory(vert.c_str(), frag.c_str());
+    return loadShaderFromMemoryIfGpu(vert.c_str(), frag.c_str());
 }
 
 } // namespace
@@ -916,10 +951,22 @@ void bindLightmapDummyShadowMaps(Shader shader) {
     if (shader.id == 0) {
         return;
     }
-    const int loc = GetShaderLocation(shader, "dynShadowMaps");
+    static std::unordered_map<unsigned int, int> locs;
+    auto [locIt, inserted] = locs.try_emplace(shader.id, -1);
+    if (inserted) {
+        locIt->second = GetShaderLocation(shader, "dynShadowMaps");
+    }
+    const int loc = locIt->second;
     if (loc < 0) {
         return;
     }
+    static std::uint32_t boundSerial = 0;
+    static unsigned int boundShader = 0;
+    if (boundSerial == renderFrameSerial() && boundShader == shader.id) {
+        return;
+    }
+    boundSerial = renderFrameSerial();
+    boundShader = shader.id;
 
     static unsigned int dummyArrayId = 0;
     if (dummyArrayId == 0) {

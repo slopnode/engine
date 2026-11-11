@@ -1,7 +1,9 @@
 #pragma once
 
+#include <cstdint>
 #include <functional>
 #include <string>
+#include <vector>
 
 #if defined(__GNUC__) || defined(__clang__)
 #define SLOPENGINE_LOG_PRINTF(fmt_index, first_arg) __attribute__((format(printf, fmt_index, first_arg)))
@@ -49,6 +51,12 @@ void addDefaultConsoleSink();
 void addSink(LogSink sink);
 void addDeferredSink(LogSink sink);
 void pump();
+
+void beginCapture();
+std::vector<LogEntry> endCapture();
+
+std::uint64_t mark();
+std::vector<LogEntry> warningsSince(std::uint64_t mark);
 
 void setCategoryEnabled(LogCategory category, bool enabled);
 bool categoryEnabled(LogCategory category);

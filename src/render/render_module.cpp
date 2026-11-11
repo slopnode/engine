@@ -12,12 +12,18 @@
 #include "map/bsp.hpp"
 #include "map/light_components.hpp"
 #include "render/animation_player.hpp"
+#include "render/bone_attachment.hpp"
+#include "render/model_hitboxes.hpp"
 #include "render/animation_systems.hpp"
+#include "render/bone_springs.hpp"
 #include "render/components.hpp"
 #include "render/material_anim_types.hpp"
 #include "render/dynamic_light.hpp"
 #include "render/dynamic_light_shadows.hpp"
 #include "render/fx_local_light.hpp"
+#include "render/gpu_timer.hpp"
+#include "render/system_perf.hpp"
+#include "render/model_lighting.hpp"
 #include "render/hud.hpp"
 #include "render/loading_overlay.hpp"
 #include "render/render_context.hpp"
@@ -31,6 +37,7 @@
 #include "render/sprite_animator.hpp"
 #include "particles/particle_module.hpp"
 #include "fx/trail.hpp"
+#include "fx/tracer.hpp"
 #include "script/first_person_script.hpp"
 #include "script/script_context.hpp"
 #include "ui/ui_module.hpp"
@@ -38,6 +45,7 @@
 #include "rlImGui.h"
 
 #include <cmath>
+#include <cstdlib>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -56,6 +64,7 @@ void registerComponents(flecs::world& world) {
     world.component<GlobalTransformation>();
     world.component<WorldSpace>();
     world.component<ViewSpace>();
+    world.component<ViewGeoRoot>();
     world.component<ViewCanvas>();
     world.component<HudCanvas>();
     world.component<TitleCanvas>();
@@ -73,11 +82,15 @@ void registerComponents(flecs::world& world) {
     world.component<FpViewOverride>();
     world.component<Spin>();
     world.component<Model3D>();
+    world.component<BoneScales>();
+    world.component<ModelHitboxes>();
+    world.component<HiddenBones>();
+    world.component<GeoSource>();
     world.component<SpriteInstance>();
     world.component<SpriteOverlay>();
     world.component<SpriteAnimator>();
     world.component<AnimationPlayer>();
-    world.component<AnimationClipFlipTest>();
+    world.component<BoneAttachment>();
     world.component<MaterialAnimTargets>();
     world.component<MaterialAnimClocks>();
     world.component<PointLight>();
@@ -87,6 +100,7 @@ void registerComponents(flecs::world& world) {
     world.component<AmbientLight>();
     world.component<DynamicLight>();
     world.component<FxLocalLight>();
+    world.component<ModelLightingState>();
     world.component<MapOwned>();
     world.component<CurrentMap>();
     world.component<PlayerEntity>();
@@ -107,10 +121,18 @@ void registerRenderSystems(flecs::world& world) {
     world.system("StartDrawing")
         .kind(flecs::PostUpdate)
         .run([](flecs::iter& it) {
-            if (it.world().has<FramePerfStats>()) {
-                it.world().get_mut<FramePerfStats>().renderMs = 0.0f;
+            FramePerfStats* perf =
+                it.world().has<FramePerfStats>() ? &it.world().get_mut<FramePerfStats>() : nullptr;
+            if (perf != nullptr) {
+                perf->renderMs = 0.0f;
+                for (float& ms : perf->cpuPassMs) {
+                    ms = 0.0f;
+                }
             }
+            resetFrameCounters();
+            ++renderFrameSerial();
             BeginDrawing();
+            gpuTimerFrameBegin(perf);
             ClearBackground(BLACK);
         });
 
@@ -133,6 +155,19 @@ void registerRenderSystems(flecs::world& world) {
             }
             flecs::entity eyeEntity = it.entity(index);
             RenderContext& context = world.get_mut<RenderContext>();
+            if (world.has<PerfLogState>() && world.get<PerfLogState>().viewLock &&
+                world.has<DebugUiState>()) {
+                const PerfLogState& perfLog = world.get<PerfLogState>();
+                world.get_mut<DebugUiState>().freeCamera = true;
+                if (!world.has<FreeFlyCamera>()) {
+                    world.set<FreeFlyCamera>(FreeFlyCamera{});
+                }
+                FreeFlyCamera& fly = world.get_mut<FreeFlyCamera>();
+                fly.active = true;
+                fly.position = {perfLog.viewPose[0], perfLog.viewPose[1], perfLog.viewPose[2]};
+                fly.yaw = perfLog.viewPose[3];
+                fly.pitch = perfLog.viewPose[4];
+            }
             const DebugUiState* debugUiState =
                 world.has<DebugUiState>() ? &world.get<DebugUiState>() : nullptr;
             const bool unlit = debugUiState != nullptr && debugUiState->unlit;
@@ -173,6 +208,17 @@ void registerRenderSystems(flecs::world& world) {
             const Frustum frustum = makeFrustumFromCamera(presentCam, aspect);
 
             const double renderStart = perfNow();
+            double cpuMarkStart = renderStart;
+            FramePerfStats* perf =
+                world.has<FramePerfStats>() ? &world.get_mut<FramePerfStats>() : nullptr;
+            const auto cpuMark = [&](GpuPass pass) {
+                const double now = perfNow();
+                if (perf != nullptr) {
+                    perf->cpuPassMs[static_cast<int>(pass)] +=
+                        static_cast<float>((now - cpuMarkStart) * 1000.0);
+                }
+                cpuMarkStart = now;
+            };
 
             const GraphicsSettings graphics =
                 world.has<UserSettings>() ? world.get<UserSettings>().graphics : GraphicsSettings{};
@@ -220,6 +266,8 @@ void registerRenderSystems(flecs::world& world) {
             }
 
             uploadMapDynamicLights(world, rankedLights, unlit, shadowState);
+            gpuTimerMark(GpuPass::Shadow);
+            cpuMark(GpuPass::Shadow);
 
             FxLightFrameState fxLights{};
             buildFxLightFrameState(world, &frustum, unlit, fxLights);
@@ -236,7 +284,12 @@ void registerRenderSystems(flecs::world& world) {
                     GetRenderWidth(),
                     GetRenderHeight());
                 if (sceneToTexture) {
-                    BeginTextureMode(postState->scene);
+                    if (world.has<AssetServices>() && world.get<AssetServices>().store != nullptr) {
+                        setPostProcessAntiAlias(
+                            *postState, *world.get<AssetServices>().store, graphics.antiAliasing);
+                    }
+                    setPostProcessMsaa(*postState, graphics.msaaSamples);
+                    BeginTextureMode(postProcessSceneTarget(*postState));
                     ClearBackground(BLACK);
                 }
             }
@@ -250,19 +303,27 @@ void registerRenderSystems(flecs::world& world) {
                 skyShaderState = &ensureSkyboxShaders(*assetStore);
                 drawSkyboxBackground(presentCam, *assetStore, *skyShaderState, *skySettings);
             }
+            lightParticleSystems(world, frustum, unlit);
             drawWorldModels(world, context, worldLens, frustum, unlit);
             if (skySettings != nullptr && assetStore != nullptr && skyShaderState != nullptr) {
                 drawSkyMaterialFaces(world, presentCam, *assetStore, *skyShaderState, *skySettings);
             }
+            gpuTimerMark(GpuPass::World);
+            cpuMark(GpuPass::World);
             const std::string spriteAimStatus =
                 drawWorldTransparentPass(world, context, worldLens, frustum, unlit);
+            gpuTimerMark(GpuPass::Transparent);
+            cpuMark(GpuPass::Transparent);
             if (world.has<AssetServices>() && world.get<AssetServices>().store != nullptr) {
                 drawParticleSystems(
-                    world, *world.get_mut<AssetServices>().store, presentCam, unlit);
+                    world, *world.get_mut<AssetServices>().store, presentCam, &frustum, unlit);
                 drawTrailEffects(world, *world.get_mut<AssetServices>().store, presentCam, unlit);
             }
+            drawTracers(world, presentCam);
             drawWorldDebugOverlays(world);
             EndMode3D();
+            gpuTimerMark(GpuPass::Effects);
+            cpuMark(GpuPass::Effects);
 
             if (playing) {
                 const bool hideFp =
@@ -282,8 +343,11 @@ void registerRenderSystems(flecs::world& world) {
                     drawFirstPersonPass(world, context, lens, unlit);
                     drawViewSprites(world, unlit);
                 }
+                gpuTimerMark(GpuPass::FirstPerson);
+                cpuMark(GpuPass::FirstPerson);
                 if (sceneToTexture) {
                     EndTextureMode();
+                    resolvePostProcessMsaa(*postState);
                     if (crossfading && assetStore != nullptr) {
                         const LoadingSession& session = world.get<LoadingSession>();
                         presentLoadingCrossfade(
@@ -307,10 +371,12 @@ void registerRenderSystems(flecs::world& world) {
                         }
                     }
                 }
+                gpuTimerMark(GpuPass::Post);
+                cpuMark(GpuPass::Post);
             }
 
-            if (world.has<FramePerfStats>()) {
-                world.get_mut<FramePerfStats>().renderMs += perfElapsedMs(renderStart);
+            if (perf != nullptr) {
+                perf->renderMs += perfElapsedMs(renderStart);
             }
         });
 
@@ -338,6 +404,19 @@ void registerRenderSystems(flecs::world& world) {
                 perf->frameMs = GetFrameTime() * 1000.0f;
             }
 
+            if (perf != nullptr) {
+                perf->counters = frameCounters();
+            }
+            if (it.world().has<SystemPerfState>()) {
+                flecs::world world = it.world();
+                SystemPerfState& systemPerf = world.get_mut<SystemPerfState>();
+                ++systemPerf.framesSinceSample;
+                const double now = perfNow();
+                if (now - systemPerf.lastSampleTime >= 0.5) {
+                    systemPerf.lastSampleTime = now;
+                    sampleSystemPerf(world, systemPerf, 12);
+                }
+            }
             prepareUiInput(it.world());
             rlImGuiBegin();
             const double uiStart = perfNow();
@@ -347,14 +426,31 @@ void registerRenderSystems(flecs::world& world) {
             if (perf != nullptr) {
                 perf->uiMs = perfElapsedMs(uiStart);
                 perf->pushSample();
+                if (it.world().has<PerfLogState>()) {
+                    PerfLogState& log = it.world().get_mut<PerfLogState>();
+                    const int framesBefore = log.frames;
+                    perfLogSample(log, *perf);
+                    if (log.frames < framesBefore && it.world().has<SystemPerfState>()) {
+                        std::string line = "PERF: systems";
+                        for (const SystemTime& time : it.world().get<SystemPerfState>().top) {
+                            line += ' ' + time.name + ' ' + TextFormat("%.2f", time.msPerFrame);
+                        }
+                        TraceLog(LOG_INFO, "%s", line.c_str());
+                    }
+                }
             }
             rlImGuiEnd();
+            gpuTimerMark(GpuPass::Ui);
         });
 
     world.system("EndDrawing")
         .kind(flecs::PostUpdate)
         .run([](flecs::iter& it) {
+            const double swapStart = perfNow();
             EndDrawing();
+            if (it.world().has<FramePerfStats>()) {
+                it.world().get_mut<FramePerfStats>().swapMs = perfElapsedMs(swapStart);
+            }
             ScreenshotRequest& request = it.world().get_mut<ScreenshotRequest>();
             if (!request.pending) {
                 return;
@@ -401,18 +497,37 @@ void registerRenderModule(
     });
     world.set<PlayerEntity>({});
     world.set<PostProcessState>({});
+    world.set<ModelLightingState>({});
     world.set<FpViewOverride>({});
+    {
+        PerfLogState perfLog{};
+        perfLog.enabled = config.perfLog;
+        perfLog.viewLock = config.perfViewLock;
+        for (int i = 0; i < 5; ++i) {
+            perfLog.viewPose[i] = config.perfView[i];
+        }
+        world.set<PerfLogState>(std::move(perfLog));
+    }
+    if (const char* mapCull = std::getenv("SLOPENGINE_MAP_CULL");
+        mapCull != nullptr && mapCull[0] == '0' && world.has<DebugUiState>()) {
+        world.get_mut<DebugUiState>().mapMeshCull = false;
+    }
+    {
+        SystemPerfState systemPerf{};
+        if (config.perfLog || config.debug) {
+            enableSystemPerf(world, systemPerf);
+        }
+        world.set<SystemPerfState>(std::move(systemPerf));
+    }
 
     registerSpinSystem(world);
     registerSchemeTickSystem(world);
     registerAnimationSystems(world);
-    registerAnimationClipFlipTestSystem(world);
     registerTransformSystems(world);
+    registerBoneSpringSystem(world);
     registerSpriteAnimatorSystem(world);
     registerMaterialAnimSystem(world);
     registerRenderSystems(world);
-
-    (void)config;
 }
 
 }

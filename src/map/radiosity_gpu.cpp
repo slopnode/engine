@@ -696,7 +696,7 @@ bool validateGpuResults(
     }
 
     TraceLog(
-        LOG_INFO,
+        LOG_DEBUG,
         "sloprad: GPU direct diagnostics luxels=%zu improved=%zu maxDelta=%.6f maxSum=%.6f maxSun=%.6f",
         after.size(),
         improved,
@@ -727,7 +727,7 @@ bool validateGpuResults(
         return false;
     }
     TraceLog(
-        LOG_INFO,
+        LOG_DEBUG,
         "sloprad: GPU direct lighting validated improved=%zu/%zu",
         improved,
         after.size());
@@ -890,7 +890,7 @@ bool validateGpuSunParity(
         return true;
     }
     TraceLog(
-        LOG_INFO,
+        LOG_DEBUG,
         "sloprad: GPU sun parity probes=%zu mismatches=%zu",
         probes,
         mismatches);

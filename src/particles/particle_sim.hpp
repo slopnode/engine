@@ -2,6 +2,7 @@
 
 #include "assets/asset_store.hpp"
 #include "particles/components.hpp"
+#include "render/render_frustum.hpp"
 
 #include <functional>
 #include <optional>
@@ -48,11 +49,27 @@ void tickParticleSystemInstance(
     float dt,
     const ParticleRaycastFn& raycast = {});
 
+Color multiplyParticleTint(Color particle, Color scene);
+
 void appendParticleDrawItems(
     const ParticleSystemInstance& instance,
     AssetStore& assets,
     const Camera3D& camera,
-    std::vector<ParticleDrawItem>& out);
+    std::vector<ParticleDrawItem>& out,
+    const Frustum* frustum = nullptr,
+    bool unlit = false);
+
+struct ParticleBillboardBasis {
+    Vector3 right{1.0f, 0.0f, 0.0f};
+    Vector3 screenUp{0.0f, 1.0f, 0.0f};
+    Vector3 worldUp{0.0f, 1.0f, 0.0f};
+};
+
+ParticleBillboardBasis makeParticleBillboardBasis(const Camera3D& camera);
+
+Color particlePremultipliedTint(Color color);
+
+void drawParticleBillboard(const ParticleDrawItem& item, const ParticleBillboardBasis& basis, Color tint);
 
 void drawParticleDrawItems(
     const std::vector<ParticleDrawItem>& items,

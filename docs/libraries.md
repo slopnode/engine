@@ -26,6 +26,24 @@ Navigation mesh generation. Voxelizes level geometry into a walkable mesh used f
 
 https://github.com/recastnavigation/recastnavigation
 
+# ENet {#enet}
+
+UDP networking with connections, reliable ordered and unreliable messages. Used by the socket backend of the network transport.
+
+http://enet.bespin.org/
+
+# Monocypher {#monocypher}
+
+Small cryptography library: X25519 key exchange, BLAKE2b hashing and XChaCha20-Poly1305 authenticated encryption. Used by the encrypted layer of the network transport.
+
+https://monocypher.org/
+
+# SMAA and FXAA {#smaa-fxaa}
+
+The two screen-space anti-aliasing options under Graphics. SMAA is the reference algorithm by Jorge Jimenez, Jose I. Echevarria, Tiago Sousa and Diego Gutierrez, used with its precomputed area and search textures and ported to GLSL by three.js. FXAA is the NVIDIA algorithm by Timothy Lottes.
+
+https://github.com/iryoku/smaa
+
 # Imgui {#imgui}
 
 User interface framework. 

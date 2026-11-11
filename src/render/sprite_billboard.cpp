@@ -1,5 +1,7 @@
 #include "render/sprite_billboard.hpp"
 
+#include "render/gpu_ready.hpp"
+
 #include <cmath>
 
 #include <raymath.h>
@@ -156,7 +158,7 @@ std::optional<SpriteBillboard> buildBillboardFromRotation(
     }
 
     const Texture2D& texture = atlas.textures[static_cast<std::size_t>(atlasRect.atlasIndex)];
-    if (texture.id == 0) {
+    if (texture.id == 0 && (gpuReady() || texture.width <= 0 || texture.height <= 0)) {
         return std::nullopt;
     }
 
@@ -524,7 +526,7 @@ std::optional<ViewSpriteFrame> resolveViewSpriteFrame(
     }
 
     const Texture2D& texture = atlas.textures[static_cast<std::size_t>(atlasRect.atlasIndex)];
-    if (texture.id == 0) {
+    if (texture.id == 0 && (gpuReady() || texture.width <= 0 || texture.height <= 0)) {
         return std::nullopt;
     }
 

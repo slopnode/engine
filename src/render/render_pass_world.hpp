@@ -5,6 +5,7 @@
 #include "render/render_context.hpp"
 #include "render/render_frustum.hpp"
 #include "render/components.hpp"
+#include "render/model_lighting.hpp"
 
 #include <flecs.h>
 #include <raylib.h>
@@ -22,7 +23,9 @@ void renderWorldModel(
     const Lens& lens,
     bool unlit = false,
     const std::unordered_set<int>* skipMeshIndices = nullptr,
-    const std::unordered_set<int>* onlyMeshIndices = nullptr);
+    const std::unordered_set<int>* onlyMeshIndices = nullptr,
+    const ModelLightingUniforms* modelLighting = nullptr,
+    const std::vector<unsigned char>* meshMask = nullptr);
 
 std::vector<RankedDynamicLight> gatherDynamicLights(
     flecs::world& world,

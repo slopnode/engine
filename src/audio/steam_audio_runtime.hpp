@@ -35,17 +35,37 @@ struct SteamAudioSlotRenderParams {
     bool active = false;
 };
 
+struct SteamAudioVoiceEffects {
+    IPLDirectEffect direct = nullptr;
+    IPLBinauralEffect binaural = nullptr;
+    IPLReflectionEffect reflection = nullptr;
+    IPLAudioBuffer monoIn{};
+    IPLAudioBuffer monoDirect{};
+    IPLAudioBuffer monoWet{};
+    IPLAudioBuffer stereoOut{};
+};
+
 class SteamAudioSpatializeFilter;
 
 class SteamAudioRuntime {
 public:
-    static constexpr int kMaxSlots = 64;
+    static constexpr int kMaxSlots = 128;
+    static constexpr int kSpatialVoiceBudget = 48;
     static constexpr int kSlotParam = 0;
+    static constexpr int kDrySamplesParam = 1;
+    static constexpr int kTailSamplesParam = 2;
+    static constexpr int kFilterParamCount = 3;
     static constexpr int kReflectionOrder = 1;
     static constexpr float kMaxReflectionDuration = 1.5f;
     static constexpr float kWetMix = 0.55f;
     static constexpr float kDirectSmoothingTime = 0.1f;
     static constexpr float kReverbSmoothingTime = 0.25f;
+    static constexpr float kReflectionInterval = 0.1f;
+    static constexpr float kTailFraction = 0.5f;
+    static constexpr float kMinTail = 0.03f;
+    static constexpr float kMaxTail = 0.75f;
+    static constexpr float kTailPriority = 0.05f;
+    static constexpr float kStealFadeTime = 0.02f;
 
     SteamAudioRuntime();
     ~SteamAudioRuntime();
@@ -74,6 +94,14 @@ public:
         AssetStore& assets);
     void clearScene();
 
+    bool admitVoice(
+        SoLoud::Soloud& soloud,
+        float x,
+        float y,
+        float z,
+        float minDistance,
+        float volume,
+        bool looping);
     int trackVoice(
         SoLoud::handle voice,
         float x,
@@ -81,7 +109,10 @@ public:
         float z,
         float minDistance,
         float maxDistance,
-        float baseVolume);
+        float baseVolume,
+        bool looping,
+        float dryLength);
+    float tailSeconds() const;
     void releaseVoice(SoLoud::handle voice);
 
     void pruneFinishedVoices(SoLoud::Soloud& soloud);
@@ -90,6 +121,9 @@ public:
     void applyOcclusionGains(SoLoud::Soloud& soloud);
 
     SteamAudioSlotRenderParams slotParams(int slot) const;
+
+    std::unique_ptr<SteamAudioVoiceEffects> acquireEffects();
+    void recycleEffects(std::unique_ptr<SteamAudioVoiceEffects> effects);
     std::mutex& playMutex() { return playMutex_; }
 
     // Debug-only introspection for audio visualization tooling; not used by the mixer.
@@ -107,7 +141,10 @@ private:
         float minDistance = 1.0f;
         float maxDistance = 30.0f;
         float baseVolume = 1.0f;
+        float dryLength = 0.0f;
         bool used = false;
+        bool looping = false;
+        bool stolen = false;
 
         float smoothedOcclusion = 1.0f;
         float smoothedTransmission[3] = {1.0f, 1.0f, 1.0f};
@@ -118,6 +155,12 @@ private:
 
     int allocSlotUnlocked();
     void freeSlotUnlocked(int slot);
+    void setSourceInputsUnlocked(const Slot& slot);
+    void refreshSlotUnlocked(int index, float directAlpha, float reverbAlpha);
+    float distanceAttenuation(float x, float y, float z, float minDistance) const;
+    std::unique_ptr<SteamAudioVoiceEffects> createEffects();
+    void destroyEffects(SteamAudioVoiceEffects& effects);
+    void resetRecycledEffects();
     void destroySceneUnlocked();
     static IPLCoordinateSpace3 makeCoords(float ox, float oy, float oz, float aheadX, float aheadY, float aheadZ, float upX, float upY, float upZ);
 
@@ -139,8 +182,20 @@ private:
     mutable std::mutex renderMutex_;
     std::mutex playMutex_;
 
+    IPLSource reverbSource_ = nullptr;
+    float reverbTimes_[3]{};
+    float reflectionTimer_ = 0.0f;
+
     std::chrono::steady_clock::time_point lastUpdateTime_{};
     bool hasLastUpdateTime_ = false;
+
+    SteamAudioListenerPose lastListener_{};
+    bool hasListener_ = false;
+
+    std::vector<std::unique_ptr<SteamAudioVoiceEffects>> cleanEffects_;
+    std::vector<std::unique_ptr<SteamAudioVoiceEffects>> dirtyEffects_;
+    std::vector<std::unique_ptr<SteamAudioVoiceEffects>> resettingEffects_;
+    std::mutex poolMutex_;
 
     std::unique_ptr<SteamAudioSpatializeFilter> spatializeFilter_;
 };

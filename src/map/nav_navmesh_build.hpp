@@ -41,8 +41,9 @@ float navHeightAt(const NavMeshHeightField& heightField, int poly, float x, floa
  *  equivalent of BSP point classification (pointLeaf/pvsSampleLeaf), used by
  *  sampleNavLeaf below when @p nav was built from a baked navmesh. -1 if @p nav has no
  *  boundary data (a BSP-leaf-built graph -- callers should fall back to BSP point
- *  classification in that case) or no walkable polygon contains @p point. When more
- *  than one candidate matches, the one whose floor is closest to @p point.y wins --
+ *  classification in that case) or no walkable polygon contains @p point with its surface
+ *  between 2.5 below and 1.0 above @p point.y. When more than one candidate matches, the
+ *  one whose surface height at @p point is closest to @p point.y wins --
  *  this is not just a shared-edge measure-zero case: a tightly wound corridor (a spiral
  *  staircase) can have two entirely disconnected polygons, stacked meters apart in
  *  height, whose XZ footprints genuinely overlap over a real area. @p preferLeaf (-1 for
@@ -54,10 +55,13 @@ float navHeightAt(const NavMeshHeightField& heightField, int poly, float x, floa
  *  the agent visibly thrashes in place instead of ever committing to either route. */
 int navSamplePoly(const MapNavigation& nav, Vector3 point, int preferLeaf = -1);
 
+void buildNavPolyIndex(MapNavigation& nav);
+
 /** Nearest walkable polygon to @p point when no polygon actually contains it (e.g. a
  *  point in the eroded margin Recast leaves along walls/doorways -- see
  *  buildNavPolyMesh's walkableRadius erosion -- or just outside a simplified boundary
- *  edge). Distance is to the polygon's closest edge in XZ; -1 if @p nav has no boundary
+ *  edge). Distance is to the polygon's closest edge in XZ, and that edge point must sit
+ *  within the same vertical window navSamplePoly uses; -1 if @p nav has no boundary
  *  data or nothing walkable lies within @p maxSnapDistance. Stays in navmesh poly index
  *  space, unlike falling back to a BSP leaf id would. */
 int nearestWalkableNavPoly(const MapNavigation& nav, Vector3 point, float maxSnapDistance);

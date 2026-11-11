@@ -16,12 +16,14 @@
 namespace slopengine {
 
 constexpr std::uint32_t kRadMagic = 0x31444152u; // "RAD1" LE
-constexpr std::uint32_t kRadVersion = 6;
+constexpr std::uint32_t kRadVersion = 7;
 constexpr std::uint32_t kRadVersionLegacy = 2;
 constexpr std::uint32_t kRadVersionPrevious = 3;
 constexpr std::uint32_t kRadVersionGroups = 4;
 constexpr std::uint32_t kRadVersionProbes = 5;
 constexpr std::uint32_t kRadVersionRotation = 6;
+constexpr std::uint32_t kRadVersionAmbientCube = 7;
+constexpr std::size_t kProbeCubeFaces = 6;
 
 /** Atlas pixel encoding recorded in rad v3+. */
 enum class LightmapEncoding : std::uint32_t {
@@ -93,7 +95,7 @@ struct LightProbe {
     std::int32_t cellX = 0;
     std::int32_t cellY = 0;
     std::int32_t cellZ = 0;
-    std::array<Color, 4> shRgbe{};
+    std::array<Color, kProbeCubeFaces> cubeRgbe{};
 };
 
 struct LightProbeGridInfo {
@@ -138,6 +140,8 @@ LightmapPackResult packLightmapCharts(
 bool writeRadFile(const std::filesystem::path& path, const RadFile& rad);
 std::optional<RadFile> readRadFile(const std::filesystem::path& path);
 std::optional<RadFile> readRadBytes(std::span<const std::byte> data);
+
+std::array<Color, kProbeCubeFaces> probeCubeFromLegacySh(const std::array<Color, 4>& shRgbe);
 
 /** Ward-style shared-exponent RGBE for linear irradiance atlases. */
 Color encodeRgbe(float r, float g, float b);

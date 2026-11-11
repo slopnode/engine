@@ -1,0 +1,5 @@
+(material
+  (shader "default")
+  (texture "fx/stump")
+  (texel-size 128)
+  (base-color 1 1 1 1))

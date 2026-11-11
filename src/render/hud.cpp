@@ -99,6 +99,7 @@ void hudAnchorPoint(HudAnchor anchor, float canvasW, float canvasH, float& outX,
 void HudDrawList::clear() {
     commands.clear();
     anchor = HudAnchor::TopLeft;
+    textAlign = HudTextAlign::Left;
     fontPath.clear();
 }
 
@@ -220,11 +221,16 @@ void flushHudDrawList(HudDrawList& list, AssetStore& assets, HudFontCache& fonts
             Font* font = ensureHudFont(fonts, assets, cmd.fontPath);
             const Font& drawFont = font != nullptr ? *font : GetFontDefault();
             const float fontSize = cmd.size * fit.scale;
-            const Vector2 pos{
+            const float spacing = 1.0f * fit.scale;
+            Vector2 pos{
                 fit.offsetX + cmd.x * fit.scale,
                 fit.offsetY + cmd.y * fit.scale,
             };
-            DrawTextEx(drawFont, cmd.text.c_str(), pos, fontSize, 1.0f * fit.scale, cmd.color);
+            if (cmd.align != HudTextAlign::Left) {
+                const float width = MeasureTextEx(drawFont, cmd.text.c_str(), fontSize, spacing).x;
+                pos.x -= cmd.align == HudTextAlign::Right ? width : width * 0.5f;
+            }
+            DrawTextEx(drawFont, cmd.text.c_str(), pos, fontSize, spacing, cmd.color);
             break;
         }
         }

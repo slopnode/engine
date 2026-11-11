@@ -1,4 +1,6 @@
 #include "script/save_script.hpp"
+#include "script/player_target.hpp"
+#include "script/s7_read.hpp"
 #include "script/script_scope.hpp"
 
 #include "assets/asset_store.hpp"
@@ -44,9 +46,6 @@ std::filesystem::path currentSaveRoot() {
 }
 
 s7_pointer g_save_root(s7_scheme* sc, s7_pointer) {
-    if (!requireCap(sc, ScriptCap::SaveIo)) {
-        return s7_f(sc);
-    }
     const std::filesystem::path root = currentSaveRoot();
     if (root.empty()) {
         return s7_f(sc);
@@ -54,40 +53,25 @@ s7_pointer g_save_root(s7_scheme* sc, s7_pointer) {
     return s7_make_string(sc, root.string().c_str());
 }
 
-bool requireRelativePath(
-    s7_scheme* sc,
-    s7_pointer arg,
-    const char* proc,
-    std::filesystem::path& out,
-    s7_pointer* typeError) {
-    if (!s7_is_string(arg)) {
-        *typeError = s7_wrong_type_arg_error(sc, proc, 1, arg, "string");
-        return false;
-    }
-    *typeError = nullptr;
+bool requireRelativePath(ArgReader& in, std::filesystem::path& out) {
+    const char* rel = in.string("string");
     const std::filesystem::path root = currentSaveRoot();
     if (root.empty()) {
         return false;
     }
-    if (!resolveSaveRelativePath(root, s7_string(arg), out)) {
-        return false;
-    }
-    return true;
+    return resolveSaveRelativePath(root, rel, out);
 }
 
 s7_pointer g_save_write(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::SaveIo)) {
-        return s7_f(sc);
-    }
     if (g_saveAssets == nullptr) {
         return s7_f(sc);
     }
-    s7_pointer typeError = nullptr;
+    ArgReader in(sc, "save-write", args);
     std::filesystem::path absolute;
-    if (!requireRelativePath(sc, s7_car(args), "save-write", absolute, &typeError)) {
-        return typeError != nullptr ? typeError : s7_f(sc);
+    if (!requireRelativePath(in, absolute)) {
+        return s7_f(sc);
     }
-    const s7_pointer form = s7_cadr(args);
+    const s7_pointer form = in.any("form");
 
     const std::filesystem::path root = currentSaveRoot();
     if (!ensureSaveMountSidecar(root, g_saveAssets->packages())) {
@@ -114,21 +98,18 @@ s7_pointer g_save_write(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_save_read(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::SaveIo)) {
+    ArgReader in(sc, "save-read", args);
+    std::filesystem::path absolute;
+    if (!requireRelativePath(in, absolute)) {
         return s7_f(sc);
     }
-    s7_pointer typeError = nullptr;
-    std::filesystem::path absolute;
-    if (!requireRelativePath(sc, s7_car(args), "save-read", absolute, &typeError)) {
-        return typeError != nullptr ? typeError : s7_f(sc);
-    }
 
-    std::ifstream in(absolute, std::ios::binary);
-    if (!in) {
+    std::ifstream file(absolute, std::ios::binary);
+    if (!file) {
         return s7_f(sc);
     }
     std::ostringstream buffer;
-    buffer << in.rdbuf();
+    buffer << file.rdbuf();
     const std::string contents = buffer.str();
     if (contents.empty()) {
         return s7_f(sc);
@@ -147,38 +128,29 @@ s7_pointer g_save_read(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_save_exists(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::SaveIo)) {
+    ArgReader in(sc, "save-exists?", args);
+    std::filesystem::path absolute;
+    if (!requireRelativePath(in, absolute)) {
         return s7_f(sc);
     }
-    s7_pointer typeError = nullptr;
-    std::filesystem::path absolute;
-    if (!requireRelativePath(sc, s7_car(args), "save-exists?", absolute, &typeError)) {
-        return typeError != nullptr ? typeError : s7_f(sc);
-    }
     std::error_code ec;
-    return std::filesystem::is_regular_file(absolute, ec) ? s7_t(sc) : s7_f(sc);
+    return s7_make_boolean(sc, std::filesystem::is_regular_file(absolute, ec));
 }
 
 s7_pointer g_save_delete(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::SaveIo)) {
-        return s7_f(sc);
-    }
-    s7_pointer typeError = nullptr;
+    ArgReader in(sc, "save-delete", args);
     std::filesystem::path absolute;
-    if (!requireRelativePath(sc, s7_car(args), "save-delete", absolute, &typeError)) {
-        return typeError != nullptr ? typeError : s7_f(sc);
+    if (!requireRelativePath(in, absolute)) {
+        return s7_f(sc);
     }
     std::error_code ec;
     if (!std::filesystem::is_regular_file(absolute, ec)) {
         return s7_f(sc);
     }
-    return std::filesystem::remove(absolute, ec) && !ec ? s7_t(sc) : s7_f(sc);
+    return s7_make_boolean(sc, std::filesystem::remove(absolute, ec) && !ec);
 }
 
 s7_pointer g_save_timestamp(s7_scheme* sc, s7_pointer) {
-    if (!requireCap(sc, ScriptCap::SaveIo)) {
-        return s7_f(sc);
-    }
     const std::time_t now = std::time(nullptr);
     std::tm local{};
 #if defined(_WIN32)
@@ -201,37 +173,22 @@ s7_pointer g_save_timestamp(s7_scheme* sc, s7_pointer) {
 }
 
 s7_pointer g_request_map_load(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::MapControl)) {
-        return s7_f(sc);
-    }
-    if (!s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "request-map-load", 1, s7_car(args), "string");
-    }
-    const char* mapName = s7_string(s7_car(args));
+    ArgReader in(sc, "request-map-load", args);
+    const char* mapName = in.string("string");
     std::string reason = "fresh";
-    const s7_pointer rest = s7_cdr(args);
-    if (s7_is_pair(rest)) {
-        if (!s7_is_string(s7_car(rest))) {
-            return s7_wrong_type_arg_error(sc, "request-map-load", 2, s7_car(rest), "string");
-        }
-        reason = s7_string(s7_car(rest));
+    if (in.more()) {
+        reason = in.string("string");
     }
     requestMapLoad(mapName, reason);
     return s7_t(sc);
 }
 
 s7_pointer g_return_to_menu(s7_scheme* sc, s7_pointer) {
-    if (!requireCap(sc, ScriptCap::MapControl)) {
-        return s7_f(sc);
-    }
     requestMapLoad("", "menu");
     return s7_t(sc);
 }
 
 s7_pointer g_list_maps(s7_scheme* sc, s7_pointer) {
-    if (!requireCap(sc, ScriptCap::ReadWorld)) {
-        return s7_nil(sc);
-    }
     if (g_saveAssets == nullptr) {
         return s7_nil(sc);
     }
@@ -248,23 +205,24 @@ s7_pointer g_list_maps(s7_scheme* sc, s7_pointer) {
 }
 
 s7_pointer g_current_map(s7_scheme* sc, s7_pointer) {
-    if (!requireCap(sc, ScriptCap::ReadWorld)) {
-        return s7_f(sc);
-    }
     if (g_saveWorld == nullptr || !g_saveWorld->has<CurrentMap>()) {
         return s7_f(sc);
     }
     return s7_make_string(sc, g_saveWorld->get<CurrentMap>().id.c_str());
 }
 
-s7_pointer g_player_pose(s7_scheme* sc, s7_pointer) {
-    if (!requireCap(sc, ScriptCap::ReadWorld)) {
-        return s7_f(sc);
-    }
+constexpr SchemeBinding kMapBindings[] = {
+    {"request-map-load", g_request_map_load, 1, 1, false, "(request-map-load name [reason])", ScriptCap::MapControl},
+    {"return-to-menu", g_return_to_menu, 0, 0, false, "(return-to-menu)", ScriptCap::MapControl},
+    {"list-maps", g_list_maps, 0, 0, false, "(list-maps)", ScriptCap::ReadWorld},
+    {"current-map", g_current_map, 0, 0, false, "(current-map)", ScriptCap::ReadWorld},
+};
+
+s7_pointer g_player_pose(s7_scheme* sc, s7_pointer args) {
     if (g_saveWorld == nullptr) {
         return s7_f(sc);
     }
-    flecs::entity player = g_saveWorld->lookup("Player");
+    flecs::entity player = scriptPlayer(*g_saveWorld, args);
     if (!player.is_valid() || !player.has<FirstPersonController>()) {
         return s7_f(sc);
     }
@@ -272,31 +230,7 @@ s7_pointer g_player_pose(s7_scheme* sc, s7_pointer) {
     float x = 0.0f;
     float y = 0.0f;
     float z = 0.0f;
-    if (g_saveWorld->has<PhysicsContext>()) {
-        PhysicsWorld* physics = g_saveWorld->get<PhysicsContext>().world;
-        if (physics != nullptr && physics->hasPlayer()) {
-            const JPH::RVec3 feet = physics->playerPosition();
-            x = static_cast<float>(feet.GetX());
-            y = static_cast<float>(feet.GetY());
-            z = static_cast<float>(feet.GetZ());
-        } else if (player.has<Lens>()) {
-            const Lens& lens = player.get<Lens>();
-            const float eye =
-                player.has<CharacterMotor>() ? player.get<CharacterMotor>().eyeHeight : 1.7f;
-            x = lens.camera.position.x;
-            y = lens.camera.position.y - eye;
-            z = lens.camera.position.z;
-        } else {
-            return s7_f(sc);
-        }
-    } else if (player.has<Lens>()) {
-        const Lens& lens = player.get<Lens>();
-        const float eye =
-            player.has<CharacterMotor>() ? player.get<CharacterMotor>().eyeHeight : 1.7f;
-        x = lens.camera.position.x;
-        y = lens.camera.position.y - eye;
-        z = lens.camera.position.z;
-    } else {
+    if (!scriptPlayerFeet(*g_saveWorld, player, x, y, z)) {
         return s7_f(sc);
     }
 
@@ -312,37 +246,21 @@ s7_pointer g_player_pose(s7_scheme* sc, s7_pointer) {
 }
 
 s7_pointer g_player_set_pose(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::MapControl)) {
-        return s7_f(sc);
-    }
     if (g_saveWorld == nullptr) {
         return s7_f(sc);
     }
-    flecs::entity player = g_saveWorld->lookup("Player");
+    flecs::entity player = scriptPlayer(*g_saveWorld);
     if (!player.is_valid() || !player.has<FirstPersonController>() || !player.has<Lens>()) {
         return s7_f(sc);
     }
 
-    s7_pointer rest = args;
-    auto readReal = [&](int index, float& out) -> bool {
-        if (!s7_is_pair(rest) || !s7_is_number(s7_car(rest))) {
-            s7_wrong_type_arg_error(sc, "player-set-pose", index, rest, "number");
-            return false;
-        }
-        out = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
-        rest = s7_cdr(rest);
-        return true;
-    };
-
-    float x = 0.0f;
-    float y = 0.0f;
-    float z = 0.0f;
-    float yaw = 0.0f;
-    float pitch = 0.0f;
-    if (!readReal(1, x) || !readReal(2, y) || !readReal(3, z) || !readReal(4, yaw)
-        || !readReal(5, pitch)) {
-        return s7_f(sc);
-    }
+    ArgReader in(sc, "player-set-pose", args);
+    const Vector3 at = in.vec3("number");
+    const float yaw = in.realf("number");
+    const float pitch = in.realf("number");
+    const float x = at.x;
+    const float y = at.y;
+    const float z = at.z;
 
     FirstPersonController& controller = player.get_mut<FirstPersonController>();
     controller.yaw = yaw;
@@ -353,8 +271,9 @@ s7_pointer g_player_set_pose(s7_scheme* sc, s7_pointer args) {
 
     if (g_saveWorld->has<PhysicsContext>()) {
         PhysicsWorld* physics = g_saveWorld->get_mut<PhysicsContext>().world;
-        if (physics != nullptr && physics->hasPlayer()) {
-            physics->setPlayerPosition(x, y, z);
+        const std::uint64_t id = static_cast<std::uint64_t>(player.id());
+        if (physics != nullptr && physics->hasCharacter(id)) {
+            physics->setCharacterPosition(id, x, y, z);
         }
     }
 
@@ -372,13 +291,10 @@ s7_pointer g_player_set_pose(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_player_eye_height(s7_scheme* sc, s7_pointer) {
-    if (!requireCap(sc, ScriptCap::MapControl)) {
-        return s7_f(sc);
-    }
     if (g_saveWorld == nullptr) {
         return s7_f(sc);
     }
-    flecs::entity player = g_saveWorld->lookup("Player");
+    flecs::entity player = scriptPlayer(*g_saveWorld);
     if (!player.is_valid()) {
         return s7_f(sc);
     }
@@ -392,21 +308,16 @@ s7_pointer g_player_eye_height(s7_scheme* sc, s7_pointer) {
 }
 
 s7_pointer g_player_set_eye_height(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::MapControl)) {
-        return s7_f(sc);
-    }
     if (g_saveWorld == nullptr) {
         return s7_f(sc);
     }
-    if (!s7_is_pair(args) || !s7_is_number(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "player-set-eye-height", 1, args, "number");
-    }
-    flecs::entity player = g_saveWorld->lookup("Player");
+    ArgReader in(sc, "player-set-eye-height", args);
+    const float h = in.realf("number");
+    flecs::entity player = scriptPlayer(*g_saveWorld, in.rest());
     if (!player.is_valid() || !player.has<FirstPersonController>()) {
         return s7_f(sc);
     }
 
-    const float h = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
     FirstPersonController& controller = player.get_mut<FirstPersonController>();
     controller.eyeHeight = h;
     bool motorResized = false;
@@ -422,17 +333,22 @@ s7_pointer g_player_set_eye_height(s7_scheme* sc, s7_pointer args) {
         Lens& lens = player.get_mut<Lens>();
         if (g_saveWorld->has<PhysicsContext>()) {
             PhysicsWorld* physics = g_saveWorld->get_mut<PhysicsContext>().world;
-            if (physics != nullptr && physics->hasPlayer()) {
-                const JPH::RVec3 feet = physics->playerPosition();
+            const std::uint64_t id = static_cast<std::uint64_t>(player.id());
+            if (physics != nullptr && physics->hasCharacter(id)) {
+                const JPH::RVec3 feet = physics->characterPosition(id);
                 lens.camera.position.x = static_cast<float>(feet.GetX());
                 lens.camera.position.y = static_cast<float>(feet.GetY()) + h;
                 lens.camera.position.z = static_cast<float>(feet.GetZ());
                 if (motorResized && player.has<CharacterMotor>()) {
-                    physics->createPlayerCharacter(
-                        static_cast<float>(feet.GetX()),
-                        static_cast<float>(feet.GetY()),
-                        static_cast<float>(feet.GetZ()),
-                        player.get<CharacterMotor>());
+                    const float x = static_cast<float>(feet.GetX());
+                    const float y = static_cast<float>(feet.GetY());
+                    const float z = static_cast<float>(feet.GetZ());
+                    if (id == physics->playerId()) {
+                        physics->createPlayerCharacter(x, y, z, player.get<CharacterMotor>());
+                    } else {
+                        physics->destroyCharacter(id);
+                        physics->createCharacter(id, x, y, z, player.get<CharacterMotor>());
+                    }
                 }
             } else {
                 lens.camera.position.y = h;
@@ -451,14 +367,11 @@ s7_pointer g_player_set_eye_height(s7_scheme* sc, s7_pointer args) {
     return s7_t(sc);
 }
 
-s7_pointer g_player_collider(s7_scheme* sc, s7_pointer) {
-    if (!requireCap(sc, ScriptCap::ReadWorld)) {
-        return s7_f(sc);
-    }
+s7_pointer g_player_collider(s7_scheme* sc, s7_pointer args) {
     if (g_saveWorld == nullptr) {
         return s7_f(sc);
     }
-    flecs::entity player = g_saveWorld->lookup("Player");
+    flecs::entity player = scriptPlayer(*g_saveWorld, args);
     if (!player.is_valid() || !player.has<CharacterMotor>()) {
         return s7_f(sc);
     }
@@ -471,26 +384,17 @@ s7_pointer g_player_collider(s7_scheme* sc, s7_pointer) {
 }
 
 s7_pointer g_player_set_collider(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::MapControl)) {
-        return s7_f(sc);
-    }
     if (g_saveWorld == nullptr) {
         return s7_f(sc);
     }
-    if (!s7_is_pair(args) || !s7_is_number(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "player-set-collider", 1, args, "number");
-    }
-    s7_pointer rest = s7_cdr(args);
-    if (!s7_is_pair(rest) || !s7_is_number(s7_car(rest))) {
-        return s7_wrong_type_arg_error(sc, "player-set-collider", 2, rest, "number");
-    }
-    flecs::entity player = g_saveWorld->lookup("Player");
+    ArgReader in(sc, "player-set-collider", args);
+    const float radius = in.realf("number");
+    const float height = in.realf("number");
+    flecs::entity player = scriptPlayer(*g_saveWorld, in.rest());
     if (!player.is_valid() || !player.has<CharacterMotor>()) {
         return s7_f(sc);
     }
 
-    const float radius = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
-    const float height = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
     if (!(radius > 0.0f) || !(height > 0.0f)) {
         return s7_f(sc);
     }
@@ -499,14 +403,15 @@ s7_pointer g_player_set_collider(s7_scheme* sc, s7_pointer args) {
         return s7_f(sc);
     }
     PhysicsWorld* physics = g_saveWorld->get_mut<PhysicsContext>().world;
-    if (physics == nullptr || !physics->hasPlayer()) {
+    const std::uint64_t id = static_cast<std::uint64_t>(player.id());
+    if (physics == nullptr || !physics->hasCharacter(id)) {
         return s7_f(sc);
     }
 
     CharacterMotor resized = player.get<CharacterMotor>();
     resized.radius = radius;
     resized.height = height;
-    if (!physics->resizePlayerCharacter(resized)) {
+    if (!physics->resizeCharacter(id, resized)) {
         return s7_f(sc);
     }
 
@@ -517,26 +422,19 @@ s7_pointer g_player_set_collider(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_player_set_control(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::MapControl)) {
-        return s7_f(sc);
-    }
     if (g_saveWorld == nullptr) {
         return s7_f(sc);
     }
-    if (!s7_is_pair(args)) {
-        return s7_wrong_type_arg_error(sc, "player-set-control", 1, args, "boolean");
-    }
-    s7_pointer rest = s7_cdr(args);
-    if (!s7_is_pair(rest)) {
-        return s7_wrong_type_arg_error(sc, "player-set-control", 2, rest, "boolean");
-    }
-    flecs::entity player = g_saveWorld->lookup("Player");
+    ArgReader in(sc, "player-set-control", args);
+    const bool allowMove = in.truthy("boolean");
+    const bool allowLook = in.truthy("boolean");
+    flecs::entity player = scriptPlayer(*g_saveWorld);
     if (!player.is_valid() || !player.has<FirstPersonController>()) {
         return s7_f(sc);
     }
     FirstPersonController& controller = player.get_mut<FirstPersonController>();
-    controller.allowMove = s7_boolean(sc, s7_car(args));
-    controller.allowLook = s7_boolean(sc, s7_car(rest));
+    controller.allowMove = allowMove;
+    controller.allowLook = allowLook;
     if (!controller.allowMove && player.has<CharacterMotor>()) {
         CharacterMotor& motor = player.get_mut<CharacterMotor>();
         motor.wishX = 0.0f;
@@ -546,27 +444,33 @@ s7_pointer g_player_set_control(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_player_set_pitch_locked(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::MapControl)) {
-        return s7_f(sc);
-    }
     if (g_saveWorld == nullptr) {
         return s7_f(sc);
     }
-    if (!s7_is_pair(args)) {
-        return s7_wrong_type_arg_error(sc, "player-set-pitch-locked", 1, args, "boolean");
-    }
-    flecs::entity player = g_saveWorld->lookup("Player");
+    ArgReader in(sc, "player-set-pitch-locked", args);
+    const bool locked = in.truthy("boolean");
+    flecs::entity player = scriptPlayer(*g_saveWorld);
     if (!player.is_valid() || !player.has<FirstPersonController>()) {
         return s7_f(sc);
     }
     FirstPersonController& controller = player.get_mut<FirstPersonController>();
-    const bool locked = s7_boolean(sc, s7_car(args));
     controller.allowPitch = !locked;
     if (locked) {
         controller.pitch = 0.0f;
     }
     return s7_t(sc);
 }
+
+constexpr SchemeBinding kPlayerBindings[] = {
+    {"player-pose", g_player_pose, 0, 1, false, "(player-pose [id])", ScriptCap::ReadWorld},
+    {"player-set-pose", g_player_set_pose, 5, 0, false, "(player-set-pose x y z yaw pitch)", ScriptCap::MapControl},
+    {"player-eye-height", g_player_eye_height, 0, 0, false, "(player-eye-height)", ScriptCap::MapControl},
+    {"player-set-eye-height", g_player_set_eye_height, 1, 1, false, "(player-set-eye-height h [id])", ScriptCap::MapControl},
+    {"player-collider", g_player_collider, 0, 1, false, "(player-collider [id]) -> (radius height)", ScriptCap::ReadWorld},
+    {"player-set-collider", g_player_set_collider, 2, 1, false, "(player-set-collider radius height [id])", ScriptCap::MapControl},
+    {"player-set-control", g_player_set_control, 2, 0, false, "(player-set-control move? look?)", ScriptCap::MapControl},
+    {"player-set-pitch-locked", g_player_set_pitch_locked, 1, 0, false, "(player-set-pitch-locked locked?)", ScriptCap::MapControl},
+};
 
 bool parseSaveStemDisplay(std::string_view stem, std::string& displayOut) {
     const std::size_t under = stem.rfind('_');
@@ -602,17 +506,12 @@ bool parseSaveStemDisplay(std::string_view stem, std::string& displayOut) {
 }
 
 s7_pointer g_save_list(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::SaveIo)) {
-        return s7_f(sc);
-    }
     if (g_saveAssets == nullptr) {
         return s7_nil(sc);
     }
-    if (!s7_is_string(s7_car(args)) || !s7_is_string(s7_cadr(args))) {
-        return s7_wrong_type_arg_error(sc, "save-list", 1, s7_car(args), "dir suffix");
-    }
-    const std::string relDir = s7_string(s7_car(args));
-    const std::string suffix = s7_string(s7_cadr(args));
+    ArgReader in(sc, "save-list", args);
+    const std::string relDir = in.string("dir suffix");
+    const std::string suffix = in.string("dir suffix");
     const std::filesystem::path root = currentSaveRoot();
     if (root.empty()) {
         return s7_nil(sc);
@@ -661,48 +560,37 @@ s7_pointer g_save_list(s7_scheme* sc, s7_pointer args) {
     return list;
 }
 
+constexpr SchemeBinding kSaveFileBindings[] = {
+    {"save-root", g_save_root, 0, 0, false, "(save-root)", ScriptCap::SaveIo},
+    {"save-write", g_save_write, 2, 0, false, "(save-write rel form)", ScriptCap::SaveIo},
+    {"save-read", g_save_read, 1, 0, false, "(save-read rel)", ScriptCap::SaveIo},
+    {"save-exists?", g_save_exists, 1, 0, false, "(save-exists? rel)", ScriptCap::SaveIo},
+    {"save-delete", g_save_delete, 1, 0, false, "(save-delete rel)", ScriptCap::SaveIo},
+    {"save-timestamp", g_save_timestamp, 0, 0, false, "(save-timestamp)", ScriptCap::SaveIo},
+    {"save-list", g_save_list, 2, 0, false, "(save-list dir suffix)", ScriptCap::SaveIo},
+};
+
 s7_pointer g_package_load_data(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::PackageLoad)) {
-        return s7_f(sc);
-    }
     if (g_saveAssets == nullptr) {
         return s7_f(sc);
     }
-    if (!s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "package-load-data", 1, s7_car(args), "string");
-    }
-    if (!s7_is_string(s7_cadr(args))) {
-        return s7_wrong_type_arg_error(sc, "package-load-data", 2, s7_cadr(args), "string");
-    }
-    return g_saveAssets->loadDataFromPackage(
-               sc, s7_string(s7_car(args)), s7_string(s7_cadr(args)))
-        ? s7_t(sc)
-        : s7_f(sc);
+    ArgReader in(sc, "package-load-data", args);
+    const char* packageId = in.string("string");
+    const char* path = in.string("string");
+    return s7_make_boolean(sc, g_saveAssets->loadDataFromPackage(sc, packageId, path));
 }
 
 s7_pointer g_package_load_script(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::PackageLoad)) {
-        return s7_f(sc);
-    }
     if (g_saveAssets == nullptr) {
         return s7_f(sc);
     }
-    if (!s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "package-load-script", 1, s7_car(args), "string");
-    }
-    if (!s7_is_string(s7_cadr(args))) {
-        return s7_wrong_type_arg_error(sc, "package-load-script", 2, s7_cadr(args), "string");
-    }
-    return g_saveAssets->loadScriptFromPackage(
-               sc, s7_string(s7_car(args)), s7_string(s7_cadr(args)))
-        ? s7_t(sc)
-        : s7_f(sc);
+    ArgReader in(sc, "package-load-script", args);
+    const char* packageId = in.string("string");
+    const char* path = in.string("string");
+    return s7_make_boolean(sc, g_saveAssets->loadScriptFromPackage(sc, packageId, path));
 }
 
 s7_pointer g_current_package_id(s7_scheme* sc, s7_pointer) {
-    if (!requireCap(sc, ScriptCap::PackageLoad)) {
-        return s7_f(sc);
-    }
     const std::string_view id = currentPackageLoadId();
     if (id.empty()) {
         return s7_f(sc);
@@ -711,29 +599,26 @@ s7_pointer g_current_package_id(s7_scheme* sc, s7_pointer) {
 }
 
 s7_pointer g_package_mounted_p(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::PackageLoad)) {
-        return s7_f(sc);
-    }
     if (g_saveAssets == nullptr) {
         return s7_f(sc);
     }
-    if (!s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "package-mounted?", 1, s7_car(args), "string");
-    }
-    return g_saveAssets->hasPackageId(s7_string(s7_car(args))) ? s7_t(sc) : s7_f(sc);
+    ArgReader in(sc, "package-mounted?", args);
+    return s7_make_boolean(sc, g_saveAssets->hasPackageId(in.string("string")));
 }
 
+constexpr SchemeBinding kPackageBindings[] = {
+    {"package-load-data", g_package_load_data, 2, 0, false, "(package-load-data package-id path)", ScriptCap::PackageLoad},
+    {"package-load-script", g_package_load_script, 2, 0, false, "(package-load-script package-id path)", ScriptCap::PackageLoad},
+    {"current-package-id", g_current_package_id, 0, 0, false, "(current-package-id)", ScriptCap::PackageLoad},
+    {"package-mounted?", g_package_mounted_p, 1, 0, false, "(package-mounted? package-id)", ScriptCap::PackageLoad},
+};
+
 s7_pointer g_startup_arg(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::StartupQuery)) {
-        return s7_f(sc);
-    }
     if (g_startupArgs == nullptr) {
         return s7_f(sc);
     }
-    if (!s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "startup-arg", 1, s7_car(args), "string");
-    }
-    const auto it = g_startupArgs->find(s7_string(s7_car(args)));
+    ArgReader in(sc, "startup-arg", args);
+    const auto it = g_startupArgs->find(in.string("string"));
     if (it == g_startupArgs->end()) {
         return s7_f(sc);
     }
@@ -741,9 +626,6 @@ s7_pointer g_startup_arg(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_startup_args(s7_scheme* sc, s7_pointer) {
-    if (!requireCap(sc, ScriptCap::StartupQuery)) {
-        return s7_f(sc);
-    }
     if (g_startupArgs == nullptr) {
         return s7_nil(sc);
     }
@@ -756,6 +638,11 @@ s7_pointer g_startup_args(s7_scheme* sc, s7_pointer) {
     return alist;
 }
 
+constexpr SchemeBinding kStartupBindings[] = {
+    {"startup-arg", g_startup_arg, 1, 0, false, "(startup-arg name)", ScriptCap::StartupQuery},
+    {"startup-args", g_startup_args, 0, 0, false, "(startup-args)", ScriptCap::StartupQuery},
+};
+
 } // namespace
 
 void bindPackageApi(AssetStore& assets, s7_scheme* scheme) {
@@ -764,26 +651,7 @@ void bindPackageApi(AssetStore& assets, s7_scheme* scheme) {
         return;
     }
 
-    s7_define_function(
-        scheme,
-        "package-load-data",
-        g_package_load_data,
-        2,
-        0,
-        false,
-        "(package-load-data package-id path)");
-    s7_define_function(
-        scheme,
-        "package-load-script",
-        g_package_load_script,
-        2,
-        0,
-        false,
-        "(package-load-script package-id path)");
-    s7_define_function(
-        scheme, "current-package-id", g_current_package_id, 0, 0, false, "(current-package-id)");
-    s7_define_function(
-        scheme, "package-mounted?", g_package_mounted_p, 1, 0, false, "(package-mounted? package-id)");
+    registerBindings(scheme, kPackageBindings);
 }
 
 void bindSaveApi(flecs::world& world, AssetStore& assets, s7_scheme* scheme) {
@@ -793,65 +661,9 @@ void bindSaveApi(flecs::world& world, AssetStore& assets, s7_scheme* scheme) {
         return;
     }
 
-    s7_define_function(scheme, "save-root", g_save_root, 0, 0, false, "(save-root)");
-    s7_define_function(scheme, "save-write", g_save_write, 2, 0, false, "(save-write rel form)");
-    s7_define_function(scheme, "save-read", g_save_read, 1, 0, false, "(save-read rel)");
-    s7_define_function(scheme, "save-exists?", g_save_exists, 1, 0, false, "(save-exists? rel)");
-    s7_define_function(scheme, "save-delete", g_save_delete, 1, 0, false, "(save-delete rel)");
-    s7_define_function(
-        scheme, "save-timestamp", g_save_timestamp, 0, 0, false, "(save-timestamp)");
-    s7_define_function(scheme, "save-list", g_save_list, 2, 0, false, "(save-list dir suffix)");
-    s7_define_function(
-        scheme,
-        "request-map-load",
-        g_request_map_load,
-        1,
-        1,
-        false,
-        "(request-map-load name [reason])");
-    s7_define_function(
-        scheme, "return-to-menu", g_return_to_menu, 0, 0, false, "(return-to-menu)");
-    s7_define_function(scheme, "list-maps", g_list_maps, 0, 0, false, "(list-maps)");
-    s7_define_function(scheme, "current-map", g_current_map, 0, 0, false, "(current-map)");
-    s7_define_function(scheme, "player-pose", g_player_pose, 0, 0, false, "(player-pose)");
-    s7_define_function(
-        scheme, "player-set-pose", g_player_set_pose, 5, 0, false, "(player-set-pose x y z yaw pitch)");
-    s7_define_function(
-        scheme, "player-eye-height", g_player_eye_height, 0, 0, false, "(player-eye-height)");
-    s7_define_function(
-        scheme,
-        "player-set-eye-height",
-        g_player_set_eye_height,
-        1,
-        0,
-        false,
-        "(player-set-eye-height h)");
-    s7_define_function(scheme, "player-collider", g_player_collider, 0, 0, false,
-                       "(player-collider) -> (radius height)");
-    s7_define_function(
-        scheme,
-        "player-set-collider",
-        g_player_set_collider,
-        2,
-        0,
-        false,
-        "(player-set-collider radius height)");
-    s7_define_function(
-        scheme,
-        "player-set-control",
-        g_player_set_control,
-        2,
-        0,
-        false,
-        "(player-set-control move? look?)");
-    s7_define_function(
-        scheme,
-        "player-set-pitch-locked",
-        g_player_set_pitch_locked,
-        1,
-        0,
-        false,
-        "(player-set-pitch-locked locked?)");
+    registerBindings(scheme, kSaveFileBindings);
+    registerBindings(scheme, kMapBindings);
+    registerBindings(scheme, kPlayerBindings);
 }
 
 void bindStartupApi(s7_scheme* scheme, const std::unordered_map<std::string, std::string>& args) {
@@ -859,8 +671,7 @@ void bindStartupApi(s7_scheme* scheme, const std::unordered_map<std::string, std
     if (scheme == nullptr) {
         return;
     }
-    s7_define_function(scheme, "startup-arg", g_startup_arg, 1, 0, false, "(startup-arg name)");
-    s7_define_function(scheme, "startup-args", g_startup_args, 0, 0, false, "(startup-args)");
+    registerBindings(scheme, kStartupBindings);
 }
 
 void callOnMapReady(flecs::world& world, std::string_view mapId, std::string_view reason) {

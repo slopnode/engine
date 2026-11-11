@@ -1,0 +1,22 @@
+(define walk-random (random-state (bot-seed)))
+(define walk-left 0.0)
+(define walk-forward 1.0)
+(define walk-strafe 0.0)
+(define walk-turn 0.0)
+(define walk-time 0.0)
+
+(define (walk-pick!)
+  (set! walk-left (+ 1.0 (random 3.0 walk-random)))
+  (set! walk-forward (if (< (random 1.0 walk-random) 0.8) 1.0 -1.0))
+  (set! walk-strafe (- (random 3 walk-random) 1.0))
+  (set! walk-turn (- (random 5.0 walk-random) 2.5)))
+
+(define (bot-tick dt)
+  (set! walk-time (+ walk-time dt))
+  (set! walk-left (- walk-left dt))
+  (when (<= walk-left 0.0)
+    (walk-pick!))
+  (let ((view (bot-view)))
+    (when view
+      (bot-look! (+ (car view) (* walk-turn dt)) (* 0.25 (sin (* walk-time 0.7))))))
+  (bot-move! walk-forward walk-strafe))

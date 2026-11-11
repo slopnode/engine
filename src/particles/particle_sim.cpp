@@ -1,5 +1,7 @@
 #include "particles/particle_sim.hpp"
 
+#include "core/frame_counters.hpp"
+
 #include <rlgl.h>
 #include <raymath.h>
 
@@ -160,7 +162,7 @@ Vector3 sampleEmitDirection(const ParticleEmitterDef& def, const Matrix& world) 
         }
     }
 
-    if (def.space == ParticleSpace::Local) {
+    if (def.space == ParticleSpace::Local || def.orientDirection) {
         Vector3 worldDir = transformDirection(world, localDir);
         const float len = Vector3Length(worldDir);
         if (len > 1.0e-6f) {
@@ -204,6 +206,9 @@ void spawnParticle(ParticleEmitterRuntime& emitter, const Matrix& world) {
     p.size0 = std::max(0.001f, sampleRange(emitter.def.size));
     p.color0 = sampleColor(emitter.def.color);
     p.bounceCount = 0;
+    p.stuck = false;
+    p.lit = false;
+    p.bakeCached = false;
     p.alive = true;
     ++emitter.aliveCount;
 }
@@ -253,6 +258,9 @@ void integrateEmitter(
             continue;
         }
 
+        if (p.stuck) {
+            continue;
+        }
         p.velocity.y -= emitter.def.gravity * dt;
         const Vector3 delta = Vector3Scale(p.velocity, dt);
         const float moveLen = Vector3Length(delta);
@@ -275,6 +283,12 @@ void integrateEmitter(
         if (emitter.def.dieOnHit) {
             p.alive = false;
             --emitter.aliveCount;
+            continue;
+        }
+        if (emitter.def.stickOnHit) {
+            p.position = Vector3Add(hit->point, Vector3Scale(hit->normal, 0.005f));
+            p.velocity = {0.0f, 0.0f, 0.0f};
+            p.stuck = true;
             continue;
         }
 
@@ -347,6 +361,7 @@ bool initParticleSystemInstance(
 
 void resetParticleSystemInstance(ParticleSystemInstance& instance) {
     instance.age = 0.0f;
+    instance.emitting = true;
     for (ParticleEmitterRuntime& emitter : instance.emitters) {
         emitter.emitAccum = 0.0f;
         emitter.burstFired = false;
@@ -372,8 +387,8 @@ void tickParticleSystemInstance(
     }
 
     instance.age += dt;
-    bool allowEmit = true;
-    if (asset->duration > 0.0f && instance.age > asset->duration) {
+    bool allowEmit = instance.emitting;
+    if (allowEmit && asset->duration > 0.0f && instance.age > asset->duration) {
         if (asset->loop) {
             const float wrapped = std::fmod(instance.age, asset->duration);
             resetParticleSystemInstance(instance);
@@ -381,17 +396,19 @@ void tickParticleSystemInstance(
             instance.age = wrapped;
         } else {
             allowEmit = false;
-            bool anyAlive = false;
-            for (const ParticleEmitterRuntime& emitter : instance.emitters) {
-                if (emitter.aliveCount > 0) {
-                    anyAlive = true;
-                    break;
-                }
+        }
+    }
+    if (!allowEmit) {
+        bool anyAlive = false;
+        for (const ParticleEmitterRuntime& emitter : instance.emitters) {
+            if (emitter.aliveCount > 0) {
+                anyAlive = true;
+                break;
             }
-            if (!anyAlive) {
-                instance.playing = false;
-                return;
-            }
+        }
+        if (!anyAlive) {
+            instance.playing = false;
+            return;
         }
     }
 
@@ -401,11 +418,25 @@ void tickParticleSystemInstance(
     }
 }
 
+Color multiplyParticleTint(Color particle, Color scene) {
+    return {
+        static_cast<unsigned char>(
+            std::clamp(static_cast<int>(particle.r) * static_cast<int>(scene.r) / 255, 0, 255)),
+        static_cast<unsigned char>(
+            std::clamp(static_cast<int>(particle.g) * static_cast<int>(scene.g) / 255, 0, 255)),
+        static_cast<unsigned char>(
+            std::clamp(static_cast<int>(particle.b) * static_cast<int>(scene.b) / 255, 0, 255)),
+        particle.a,
+    };
+}
+
 void appendParticleDrawItems(
     const ParticleSystemInstance& instance,
     AssetStore& assets,
     const Camera3D& camera,
-    std::vector<ParticleDrawItem>& out) {
+    std::vector<ParticleDrawItem>& out,
+    const Frustum* frustum,
+    bool unlit) {
     for (const ParticleEmitterRuntime& emitter : instance.emitters) {
         if (emitter.aliveCount <= 0) {
             continue;
@@ -421,8 +452,12 @@ void appendParticleDrawItems(
             }
             const float lifeT = std::clamp(p.age / p.lifetime, 0.0f, 1.0f);
             const float sizeMul = emitter.def.sizeOverLife.evaluate(lifeT);
+            const float size = p.size0 * sizeMul;
+            if (frustum != nullptr && !sphereInFrustum(*frustum, p.position, size)) {
+                continue;
+            }
             const float alphaMul = emitter.def.alphaOverLife.evaluate(lifeT);
-            Color color = p.color0;
+            Color color = unlit || emitter.def.unlit ? p.color0 : multiplyParticleTint(p.color0, p.tint);
             color.a = static_cast<unsigned char>(
                 std::clamp(static_cast<float>(color.a) * alphaMul, 0.0f, 255.0f));
             const float dx = p.position.x - camera.position.x;
@@ -430,7 +465,7 @@ void appendParticleDrawItems(
             const float dz = p.position.z - camera.position.z;
             out.push_back(ParticleDrawItem{
                 .position = p.position,
-                .size = p.size0 * sizeMul,
+                .size = size,
                 .color = color,
                 .texture = texture,
                 .source = source,
@@ -442,6 +477,56 @@ void appendParticleDrawItems(
             });
         }
     }
+}
+
+ParticleBillboardBasis makeParticleBillboardBasis(const Camera3D& camera) {
+    const Matrix matView = MatrixLookAt(camera.position, camera.target, camera.up);
+    ParticleBillboardBasis basis;
+    basis.right = {matView.m0, matView.m4, matView.m8};
+    basis.screenUp = Vector3Normalize(Vector3{matView.m1, matView.m5, matView.m9});
+    basis.worldUp = {0.0f, 1.0f, 0.0f};
+    return basis;
+}
+
+Color particlePremultipliedTint(Color color) {
+    const float a = static_cast<float>(color.a) / 255.0f;
+    return {
+        static_cast<unsigned char>(std::clamp(static_cast<float>(color.r) * a, 0.0f, 255.0f)),
+        static_cast<unsigned char>(std::clamp(static_cast<float>(color.g) * a, 0.0f, 255.0f)),
+        static_cast<unsigned char>(std::clamp(static_cast<float>(color.b) * a, 0.0f, 255.0f)),
+        color.a,
+    };
+}
+
+void drawParticleBillboard(const ParticleDrawItem& item, const ParticleBillboardBasis& basis, Color tint) {
+    const Texture2D& texture = *item.texture;
+    const Vector3 up = item.billboard == SpriteBillboardMode::Screen ? basis.screenUp : basis.worldUp;
+    const Vector3 right = Vector3Scale(basis.right, item.size);
+    const Vector3 upEdge = Vector3Scale(up, item.size);
+    const Vector3 p0 = Vector3Subtract(item.position, Vector3Scale(Vector3Add(right, upEdge), 0.5f));
+    const Vector3 p1 = Vector3Add(p0, right);
+    const Vector3 p2 = Vector3Add(p1, upEdge);
+    const Vector3 p3 = Vector3Add(p0, upEdge);
+    const float invW = 1.0f / static_cast<float>(texture.width);
+    const float invH = 1.0f / static_cast<float>(texture.height);
+    const float u0 = item.source.x * invW;
+    const float u1 = (item.source.x + item.source.width) * invW;
+    const float v0 = item.source.y * invH;
+    const float v1 = (item.source.y + item.source.height) * invH;
+
+    rlSetTexture(texture.id);
+    rlBegin(RL_QUADS);
+    rlColor4ub(tint.r, tint.g, tint.b, tint.a);
+    rlTexCoord2f(u0, v1);
+    rlVertex3f(p0.x, p0.y, p0.z);
+    rlTexCoord2f(u1, v1);
+    rlVertex3f(p1.x, p1.y, p1.z);
+    rlTexCoord2f(u1, v0);
+    rlVertex3f(p2.x, p2.y, p2.z);
+    rlTexCoord2f(u0, v0);
+    rlVertex3f(p3.x, p3.y, p3.z);
+    rlEnd();
+    ++frameCounters().particlesDrawn;
 }
 
 void drawParticleDrawItems(
@@ -478,10 +563,7 @@ void drawParticleDrawItems(
         filterTex = texture;
     };
 
-    const Matrix matView = MatrixLookAt(camera.position, camera.target, camera.up);
-    const Vector3 screenUp = Vector3Normalize(Vector3{matView.m1, matView.m5, matView.m9});
-    const Vector3 worldUp{0.0f, 1.0f, 0.0f};
-
+    const ParticleBillboardBasis basis = makeParticleBillboardBasis(camera);
     BlendMode activeBlend = BLEND_ALPHA_PREMULTIPLY;
     BeginBlendMode(activeBlend);
     for (const ParticleDrawItem& item : sorted) {
@@ -497,29 +579,9 @@ void drawParticleDrawItems(
             activeBlend = want;
             BeginBlendMode(activeBlend);
         }
-
-        const float a = static_cast<float>(item.color.a) / 255.0f;
-        const Color tint{
-            static_cast<unsigned char>(std::clamp(static_cast<float>(item.color.r) * a, 0.0f, 255.0f)),
-            static_cast<unsigned char>(std::clamp(static_cast<float>(item.color.g) * a, 0.0f, 255.0f)),
-            static_cast<unsigned char>(std::clamp(static_cast<float>(item.color.b) * a, 0.0f, 255.0f)),
-            item.color.a,
-        };
-        const Vector2 size{item.size, item.size};
-        const Vector2 origin = Vector2Scale(size, 0.5f);
-        const Vector3 up =
-            item.billboard == SpriteBillboardMode::Screen ? screenUp : worldUp;
-        DrawBillboardPro(
-            camera,
-            *item.texture,
-            item.source,
-            item.position,
-            up,
-            size,
-            origin,
-            0.0f,
-            tint);
+        drawParticleBillboard(item, basis, particlePremultipliedTint(item.color));
     }
+    rlSetTexture(0);
     EndBlendMode();
     if (filterTex != nullptr) {
         SetTextureFilter(*filterTex, TEXTURE_FILTER_POINT);

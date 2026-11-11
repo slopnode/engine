@@ -22,8 +22,10 @@
 #include "physics/rigid_mover.hpp"
 #include "physics/sight_components.hpp"
 #include "physics/trigger_components.hpp"
+#include "render/animation_player.hpp"
 #include "render/components.hpp"
 #include "render/material_anim.hpp"
+#include "render/model_hitboxes.hpp"
 #include "render/sprite_animator.hpp"
 #include "particles/particle_module.hpp"
 #include "particles/components.hpp"
@@ -62,6 +64,7 @@ struct SpawnContext {
     Vector3 prefabAngles{};
     std::vector<std::string> nestStack;
     std::vector<NavProfileDef> navProfiles;
+    MapThingPlacements* record = nullptr;
 };
 
 MaterialUvInfo resolveThingMaterialUv(AssetStore& assets, std::string_view materialPath) {
@@ -291,6 +294,51 @@ bool applyBrushPresentation(flecs::entity entity, const Thing& placement, SpawnC
     return true;
 }
 
+} // namespace
+
+void attachGeoAnimationPlayer(
+    flecs::entity entity,
+    AssetStore& assets,
+    std::string_view geoPath,
+    std::string_view animBank,
+    std::string_view clip,
+    bool loop) {
+    std::string bankPath{animBank};
+    if (bankPath.empty()) {
+        bankPath = assets.resolveGeoSkeletonPath(geoPath);
+    }
+    const std::string geo{geoPath};
+    const std::string clipName{clip};
+    if (bankPath.empty() || !assets.hasAnim(bankPath)) {
+        if (!clipName.empty()) {
+            TraceLog(
+                LOG_WARNING,
+                "THING: geo '%s' has no animation bank at '%s' for clip '%s'",
+                geo.c_str(),
+                bankPath.c_str(),
+                clipName.c_str());
+        }
+        return;
+    }
+    AnimationPlayer player{};
+    player.animBankPath = bankPath;
+    if (!clipName.empty()) {
+        const AnimBank* bank = assets.getAnimBank(bankPath);
+        if (bank == nullptr || bank->clipIndexByName.count(clipName) == 0) {
+            TraceLog(
+                LOG_WARNING,
+                "THING: animation bank '%s' has no clip '%s'",
+                bankPath.c_str(),
+                clipName.c_str());
+        } else {
+            player.play(clipName, loop);
+        }
+    }
+    entity.set<AnimationPlayer>(player);
+}
+
+namespace {
+
 bool applyPresentation(flecs::entity entity, const Thing& placement, SpawnContext& ctx) {
     const bool hasSprite = !placement.sprite.empty();
     const bool hasGeo = !placement.geo.empty();
@@ -367,10 +415,32 @@ bool applyPresentation(flecs::entity entity, const Thing& placement, SpawnContex
     }
 
     entity.set<Model3D>({model, WHITE});
+    entity.set<GeoSource>({placement.geo});
+    if (model.skeleton.boneCount > 0) {
+        attachGeoAnimationPlayer(
+            entity,
+            *ctx.assets,
+            placement.geo,
+            placement.animBank,
+            placement.haveAnim ? std::string_view{placement.animClip} : std::string_view{},
+            placement.animLoop);
+        if (!placement.boneScales.empty()) {
+            entity.set<BoneScales>({placement.boneScales});
+        }
+        entity.set<HiddenBones>(
+            {std::vector<std::uint8_t>(static_cast<std::size_t>(model.skeleton.boneCount), 0), false});
+        entity.set<ModelHitboxes>({});
+    } else if (placement.haveAnim) {
+        TraceLog(
+            LOG_WARNING,
+            "THING: '%s' has anim '%s' but geo '%s' has no skeleton",
+            placement.id.c_str(),
+            placement.animClip.c_str(),
+            placement.geo.c_str());
+    }
 
-    GeoAsset geoAsset{};
-    if (parseGeoAsset(ctx.assets->getGeoSource(placement.geo), geoAsset)) {
-        attachMaterialAnimTargetsFromGeo(entity, geoAsset, *ctx.assets);
+    if (const GeoAsset* geoAsset = ctx.assets->getGeoAsset(placement.geo)) {
+        attachMaterialAnimTargetsFromGeo(entity, *geoAsset, *ctx.assets);
     }
     return true;
 }
@@ -556,6 +626,10 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
     if (!claimId(ctx, placement.id)) {
         return;
     }
+    if (ctx.record != nullptr) {
+        ctx.record->byId.emplace(placement.id, ctx.record->things.size());
+        ctx.record->things.push_back(placement);
+    }
 
     if (placement.kind == ThingKind::Mover && !applyMoverBrushDefaults(placement, ctx)) {
         return;
@@ -571,6 +645,16 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
         if (!applyPresentation(entity, placement, ctx)) {
             entity.destruct();
             return;
+        }
+        if (!placement.collisionBoxes.empty() && entity.has<LocalTransformation>() &&
+            ctx.world->has<PhysicsContext>()) {
+            PhysicsWorld* physics = ctx.world->get_mut<PhysicsContext>().world;
+            if (physics != nullptr) {
+                const LocalTransformation& local = entity.get<LocalTransformation>();
+                const std::uint64_t id = static_cast<std::uint64_t>(entity.id());
+                physics->createPropBoxes(id, local.position, local.rotation, local.scale, placement.collisionBoxes);
+                entity.set<PropCollision>({static_cast<unsigned int>(physics->propBoxCount(id))});
+            }
         }
         if (placement.kind == ThingKind::Usable) {
             entity.set<Interactable>({
@@ -916,6 +1000,8 @@ void spawnThings(
     ctx.scheme = scheme;
     ctx.brushes = brushes;
     ctx.navProfiles = navProfileRegistry().defsOrDefault();
+    world.set<MapThingPlacements>({});
+    ctx.record = &world.get_mut<MapThingPlacements>();
     for (const Thing& placement : doc.things) {
         spawnOne(ctx, placement);
     }
@@ -934,6 +1020,7 @@ PlayerStart spawnMapThings(
     const std::vector<Texture2D>* lightmapAtlases,
     bool hasLightmaps) {
     PlayerStart defaults{};
+    world.set<MapThingPlacements>({});
     if (scheme == nullptr) {
         return defaults;
     }
@@ -954,6 +1041,7 @@ PlayerStart spawnMapThings(
     }
     ctx.lightmapAtlases = lightmapAtlases;
     ctx.hasLightmaps = hasLightmaps;
+    ctx.record = &world.get_mut<MapThingPlacements>();
 
     std::optional<ThingDocument> doc;
     const std::string virtualPath = std::string(mapName) + "/things";
@@ -979,6 +1067,29 @@ PlayerStart spawnMapThings(
         return defaults;
     }
     return ctx.playerStart;
+}
+
+bool respawnMapThing(flecs::world& world, AssetStore& assets, s7_scheme* scheme, std::string_view id) {
+    if (!world.has<MapThingPlacements>()) {
+        return false;
+    }
+    const MapThingPlacements& placements = world.get<MapThingPlacements>();
+    const auto found = placements.byId.find(std::string(id));
+    if (found == placements.byId.end()) {
+        return false;
+    }
+    Thing placement = placements.things[found->second];
+    if (!placement.brush.empty() || placement.kind == ThingKind::Mover || world.lookup(placement.id.c_str()).is_valid()) {
+        return false;
+    }
+    const std::string name = placement.id;
+    SpawnContext ctx{};
+    ctx.world = &world;
+    ctx.assets = &assets;
+    ctx.scheme = scheme;
+    ctx.navProfiles = navProfileRegistry().defsOrDefault();
+    spawnOne(ctx, std::move(placement));
+    return world.lookup(name.c_str()).is_valid();
 }
 
 }

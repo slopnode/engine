@@ -30,12 +30,17 @@ inline bool leafIsOpen(std::uint32_t contents) {
     return !leafBlocksFlood(contents);
 }
 
-/** True for open leaves and Door-brush leaves: leaves that should form
- *  BspPortal links in the portal graph used by nav pathing, sound
- *  propagation, and PVS. A closed door still blocks light/leak flood and
- *  physics (via the brush's own block mask), but a door leaf must not sever
- *  the portal graph the way a permanent wall does, since the door can open. */
+/** True for open leaves, Door-brush leaves and Glass leaves: leaves that should
+ *  form BspPortal links in the portal graph used by sound propagation, areas
+ *  and PVS. A closed door still blocks light/leak flood and physics (via the
+ *  brush's own block mask), but a door leaf must not sever the portal graph
+ *  the way a permanent wall does, since the door can open. Glass seals the
+ *  hull for the leak flood but is seen through, so VIS flows through it. */
 inline bool leafParticipatesInPortalGraph(std::uint32_t contents) {
+    return leafIsOpen(contents) || (contents & (BspContents::Door | BspContents::Glass)) != 0;
+}
+
+inline bool leafPassableForNav(std::uint32_t contents) {
     return leafIsOpen(contents) || (contents & BspContents::Door) != 0;
 }
 
@@ -136,6 +141,20 @@ struct MapBsp {
 };
 
 /** Runtime lightmap shader toggle state on the map entity. */
+struct MapTransparentMesh {
+    int meshIndex = -1;
+    BoundingBox bounds{};
+    Vector3 planeNormal{0.0f, 1.0f, 0.0f};
+    Vector3 planePoint{};
+    std::vector<std::int32_t> leaves;
+};
+
+struct MapMeshCull {
+    int meshIndex = -1;
+    BoundingBox bounds{};
+    std::vector<std::int32_t> leaves;
+};
+
 struct MapLightmapState {
     bool available = false;
     int useLightmapLoc = -1;
@@ -143,6 +162,8 @@ struct MapLightmapState {
     Shader lightmapShader{};
     Shader skyShader{};
     std::vector<int> transparentMeshIndices;
+    std::vector<MapTransparentMesh> transparentMeshes;
+    std::vector<MapMeshCull> opaqueMeshes;
     std::vector<int> skyMeshIndices;
     std::vector<int> detailMeshIndices;
     std::vector<int> twoSidedMeshIndices;

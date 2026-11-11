@@ -1,16 +1,23 @@
 #include "physics/physics_module.hpp"
 
+#include "camera/camera_math.hpp"
 #include "camera/components.hpp"
 #include "core/frame_perf.hpp"
+#include "core/sim_clock.hpp"
 #include "game/game_state.hpp"
 #include "input/input_command.hpp"
 #include "input/input_context.hpp"
+#include "input/player_command.hpp"
 #include "interact/components.hpp"
 #include "map/bsp.hpp"
+#include "physics/character_wish.hpp"
 #include "physics/components.hpp"
+#include "physics/motor_rules.hpp"
 #include "physics/motored_body.hpp"
+#include "physics/ragdoll_rig.hpp"
 #include "physics/rigid_mover.hpp"
 #include "physics/trigger_components.hpp"
+#include "render/attachment_path.hpp"
 #include "render/components.hpp"
 #include "script/scheme_call.hpp"
 #include "script/script_context.hpp"
@@ -78,15 +85,6 @@ bool computeNearWaterSurface(const BspTree& tree, JPH::RVec3 feetPos, const Char
         wasWet = wet;
     }
     return false;
-}
-
-Vector3 forwardFromYawPitch(float yaw, float pitch) {
-    const float cosPitch = std::cos(pitch);
-    return Vector3Normalize({
-        std::sin(yaw) * cosPitch,
-        std::sin(pitch),
-        std::cos(yaw) * cosPitch,
-    });
 }
 
 struct Aabb {
@@ -205,59 +203,65 @@ bool capsuleTouchesFace(
 void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
     world.component<CharacterMotor>();
     world.component<Actor>();
+    world.component<PlayerBody>();
+    world.component<MapPlayerStart>();
     world.component<ActorCorpse>();
+    world.component<DebrisBody>();
+    world.component<PropCollision>();
     world.component<CollisionTags>();
     world.component<TriggerVolume>();
     world.set<PhysicsContext>(PhysicsContext{physics});
     registerRigidMoverSystem(world);
 
+    world.observer<PropCollision>("PropCollisionOnRemove")
+        .event(flecs::OnRemove)
+        .each([](flecs::entity entity, PropCollision&) {
+            flecs::world world = entity.world();
+            if (!world.has<PhysicsContext>() || world.get<PhysicsContext>().world == nullptr) {
+                return;
+            }
+            world.get_mut<PhysicsContext>().world->destroyProp(static_cast<std::uint64_t>(entity.id()));
+        });
+
     world.system("CharacterMotorInput")
         .kind(flecs::PreUpdate)
         .run([](flecs::iter& it) {
             flecs::world world = it.world();
-            if (!world.has<PhysicsContext>() || !world.has<InputCommand>()) {
+            if (!world.has<PhysicsContext>()) {
                 return;
             }
-
             PhysicsContext& physics = world.get_mut<PhysicsContext>();
-            if (physics.world == nullptr || !physics.world->hasPlayer()) {
+            if (physics.world == nullptr) {
                 return;
             }
-
-            InputContextStack& contexts = world.get_mut<InputContextStack>();
-            if (!contexts.allowsGameplay()) {
-                return;
-            }
-
-            const flecs::entity camera = world.lookup("Player");
-            if (!camera.is_valid() || !camera.has<CharacterMotor>() || !camera.has<FirstPersonController>()) {
-                return;
-            }
-
-            CharacterMotor& motor = camera.get_mut<CharacterMotor>();
-            FirstPersonController& controller = camera.get_mut<FirstPersonController>();
             const bool freeCamera =
                 world.has<DebugUiState>() && world.get<DebugUiState>().freeCamera;
-            if (!controller.allowMove || freeCamera) {
-                motor.wishX = 0.0f;
-                motor.wishZ = 0.0f;
-                motor.wishY = 0.0f;
-                return;
-            }
 
-            const InputCommand& command = world.get<InputCommand>();
-
-            const Vector3 forwardFlat =
-                Vector3Normalize({std::sin(controller.yaw), 0.0f, std::cos(controller.yaw)});
-            const Vector3 right = Vector3CrossProduct(forwardFlat, {0.0f, 1.0f, 0.0f});
-            const Vector3 wish = Vector3Add(
-                Vector3Scale(forwardFlat, command.moveForward),
-                Vector3Scale(right, command.moveStrafe));
-
-            motor.wishX = wish.x;
-            motor.wishZ = wish.z;
-            motor.wishY = command.moveUp;
-        });
+            world.each([&](flecs::entity entity,
+                           const PlayerCommand& command,
+                           CharacterMotor& motor,
+                           FirstPersonController& controller) {
+                if (!physics.world->hasCharacter(static_cast<std::uint64_t>(entity.id()))) {
+                    return;
+                }
+                const bool frozen = !controller.allowMove || (freeCamera && entity.has<LocalPlayer>());
+                MotorRuleState rules = entity.has<MotorRuleState>() ? entity.get<MotorRuleState>() : MotorRuleState{};
+                const float eye = motor.eyeHeight;
+                stepMotorRules(*physics.world, static_cast<std::uint64_t>(entity.id()), motor, rules,
+                               MotorInput{command.moveForward, &command.actionDown, &command.actionPressed}, !frozen);
+                entity.set<MotorRuleState>(rules);
+                if (motor.eyeHeight != eye) {
+                    controller.eyeHeight = motor.eyeHeight;
+                }
+                if (frozen) {
+                    motor.wishX = 0.0f;
+                    motor.wishZ = 0.0f;
+                    motor.wishY = 0.0f;
+                    return;
+                }
+                applyMoveWish(motor, command.moveForward, command.moveStrafe, command.moveUp, command.yaw);
+            });
+        }).add<SimSystem>();
 
     world.system("PhysicsStep")
         .kind(flecs::OnUpdate)
@@ -315,29 +319,32 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
             }
 
             const double physicsStart = perfNow();
-            physics.world->update(GetFrameTime(), steps);
+            physics.world->step(steps);
             if (perf != nullptr) {
                 perf->physicsMs = perfElapsedMs(physicsStart);
             }
 
-            const flecs::entity camera = it.world().lookup("Player");
-            if (camera.is_valid() && camera.has<CharacterMotor>() && camera.has<Lens>() &&
-                camera.has<FirstPersonController>() && physics.world->hasPlayer()) {
-                CharacterMotor& motor = camera.get_mut<CharacterMotor>();
-                FirstPersonController& controller = camera.get_mut<FirstPersonController>();
-                Lens& lens = camera.get_mut<Lens>();
-
-                const JPH::RVec3 feet = physics.world->playerPosition();
-                lens.camera.position = {
+            it.world().each([&](flecs::entity entity, PlayerBody, const CharacterMotor& motor,
+                                const FirstPersonController& controller, Lens& lens) {
+                const std::uint64_t id = static_cast<std::uint64_t>(entity.id());
+                if (!physics.world->hasCharacter(id)) {
+                    return;
+                }
+                const JPH::RVec3 feet = physics.world->characterPosition(id);
+                const Vector3 feetAt{
                     static_cast<float>(feet.GetX()),
-                    static_cast<float>(feet.GetY()) + motor.eyeHeight,
+                    static_cast<float>(feet.GetY()),
                     static_cast<float>(feet.GetZ()),
                 };
-
+                lens.camera.position = {feetAt.x, feetAt.y + motor.eyeHeight, feetAt.z};
                 const Vector3 forward = forwardFromYawPitch(controller.yaw, controller.pitch);
                 lens.camera.target = Vector3Add(lens.camera.position, forward);
                 lens.camera.up = {0.0f, 1.0f, 0.0f};
-            }
+                if (LocalTransformation* local = entity.try_get_mut<LocalTransformation>()) {
+                    local->position = feetAt;
+                    local->rotation = QuaternionFromAxisAngle({0.0f, 1.0f, 0.0f}, controller.yaw);
+                }
+            });
 
             it.world().each([&](flecs::entity entity, Actor, CharacterMotor&, LocalTransformation& local) {
                 const std::uint64_t id = static_cast<std::uint64_t>(entity.id());
@@ -358,7 +365,55 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
                         std::atan2(vel.GetX(), vel.GetZ());
                 }
             });
-        });
+        }).add<SimSystem>();
+
+    world.system("CosmeticPhysicsStep")
+        .kind(flecs::OnUpdate)
+        .run([](flecs::iter& it) {
+            flecs::world world = it.world();
+            if (!world.has<SimRemote>() || !world.has<PhysicsContext>()) {
+                return;
+            }
+            if (PhysicsWorld* physics = world.get_mut<PhysicsContext>().world) {
+                physics->stepBodies();
+            }
+        }).add<CosmeticSystem>();
+
+    world.system("DebrisSync")
+        .kind(flecs::OnUpdate)
+        .run([](flecs::iter& it) {
+            flecs::world world = it.world();
+            if (isSimulationPaused(world) || !world.has<PhysicsContext>()) {
+                return;
+            }
+            PhysicsWorld* physics = world.get_mut<PhysicsContext>().world;
+            if (physics == nullptr) {
+                return;
+            }
+            const float dt = kSimTickDt;
+            std::vector<flecs::entity> expired;
+            world.each([&](flecs::entity entity, DebrisBody& debris, LocalTransformation& local) {
+                debris.age += dt;
+                const std::uint64_t id = static_cast<std::uint64_t>(entity.id());
+                const bool ragdoll = entity.has<RagdollRig>();
+                const bool alive = ragdoll ? (physics->hasRagdoll(id) || entity.get<RagdollRig>().frozen)
+                                           : physics->hasDebris(id);
+                if (debris.age >= debris.lifetime || !alive) {
+                    expired.push_back(entity);
+                    return;
+                }
+                if (!ragdoll) {
+                    physics->debrisPose(id, local.position, local.rotation);
+                }
+            });
+            for (flecs::entity entity : expired) {
+                physics->destroyDebris(static_cast<std::uint64_t>(entity.id()));
+                physics->destroyRagdoll(static_cast<std::uint64_t>(entity.id()));
+                destroyAttachmentTree(entity);
+            }
+        }).add<SimSystem>().add<CosmeticSystem>();
+
+    registerRagdollSystems(world);
 
     world.system("TriggerOverlap")
         .kind(flecs::OnUpdate)
@@ -433,7 +488,7 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
 
                 volume.inside = std::move(currentlyInside);
             });
-        });
+        }).add<SimSystem>();
 
     world.system("UpdateFaceTouch")
         .kind(flecs::OnUpdate)
@@ -485,7 +540,7 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
                 }
                 touch.inside = std::move(currentlyInside);
             });
-        });
+        }).add<SimSystem>();
 
 }
 

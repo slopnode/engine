@@ -1,8 +1,11 @@
 #include "assets/geo_loader.hpp"
 
+#include "render/gpu_ready.hpp"
+
 #include <charconv>
 #include <cstring>
 #include <optional>
+#include <sstream>
 #include <string>
 
 #include <raymath.h>
@@ -89,14 +92,55 @@ bool startsWith(std::string_view line, std::string_view prefix) {
     return line.rfind(prefix, 0) == 0;
 }
 
+bool readFloatsField(std::string_view line, std::string_view prefix, float* out, int count) {
+    if (!startsWith(line, prefix)) {
+        return false;
+    }
+    std::string_view rest = trim(line.substr(prefix.size()));
+    for (int i = 0; i < count; ++i) {
+        rest = trim(rest);
+        const auto* begin = rest.data();
+        const auto* end = rest.data() + rest.size();
+        const auto result = std::from_chars(begin, end, out[i]);
+        if (result.ec != std::errc{} || result.ptr == begin) {
+            return false;
+        }
+        rest.remove_prefix(static_cast<std::size_t>(result.ptr - begin));
+    }
+    return true;
+}
+
+enum class GeoSection {
+    Header,
+    View,
+    Attachments,
+    Primitives,
+};
+
 } // namespace
 
 bool parseGeoAsset(std::string_view source, GeoAsset& asset) {
     asset = {};
     asset.verticesImplicit = true;
 
-    GeoPrimitive current{};
-    bool inPrimitive = false;
+    GeoPrimitive primitive{};
+    GeoAttachment attachment{};
+    bool inEntry = false;
+    GeoSection section = GeoSection::Header;
+
+    auto flushEntry = [&]() {
+        if (!inEntry) {
+            return;
+        }
+        if (section == GeoSection::Attachments) {
+            asset.attachments.push_back(attachment);
+            attachment = {};
+        } else {
+            asset.primitives.push_back(primitive);
+            primitive = {};
+        }
+        inEntry = false;
+    };
 
     std::size_t lineStart = 0;
     while (lineStart <= source.size()) {
@@ -105,43 +149,76 @@ bool parseGeoAsset(std::string_view source, GeoAsset& asset) {
             lineStart,
             lineEnd == std::string_view::npos ? std::string_view::npos : lineEnd - lineStart));
 
-        if (lineEnd == std::string_view::npos) {
-            if (line.empty()) {
-                break;
-            }
+        if (lineEnd == std::string_view::npos && line.empty()) {
+            break;
         }
 
         if (startsWith(line, "(vertices implicit)")) {
             asset.verticesImplicit = true;
+        } else if (auto from = readQuotedField(line, "(vertices ")) {
+            asset.verticesFrom = *from;
         } else if (startsWith(line, "(weights implicit)")) {
             asset.weightsImplicit = true;
         } else if (auto skeletonId = readQuotedField(line, "(skeleton ")) {
             asset.skeletonId = *skeletonId;
+        } else if (startsWith(line, "(view")) {
+            flushEntry();
+            section = GeoSection::View;
+            asset.view.present = true;
+        } else if (startsWith(line, "(attachments")) {
+            flushEntry();
+            section = GeoSection::Attachments;
+        } else if (startsWith(line, "(primitives")) {
+            flushEntry();
+            section = GeoSection::Primitives;
+        } else if (section == GeoSection::View) {
+            if (startsWith(line, ")")) {
+                section = GeoSection::Header;
+            } else if (
+                !readFloatsField(line, "position ", &asset.view.position.x, 3) &&
+                !readFloatsField(line, "rotation ", &asset.view.rotationDeg.x, 3) &&
+                !readFloatsField(line, "scale ", &asset.view.scale.x, 3) &&
+                !line.empty()) {
+                return false;
+            }
         } else if (startsWith(line, "(name ")) {
-            if (inPrimitive) {
-                asset.primitives.push_back(current);
+            flushEntry();
+            if (section == GeoSection::Header) {
+                section = GeoSection::Primitives;
             }
-            current = {};
-            if (auto name = readQuotedField(line, "(name ")) {
-                current.name = *name;
+            if (section == GeoSection::Attachments) {
+                if (auto name = readQuotedField(line, "(name ")) {
+                    attachment.name = *name;
+                }
+            } else if (auto name = readQuotedField(line, "(name ")) {
+                primitive.name = *name;
             }
-            inPrimitive = true;
-        } else if (inPrimitive) {
-            if (auto material = readQuotedField(line, "material ")) {
-                current.material = *material;
-            } else if (auto vertexOffset = readUintField(line, "vertex-offset ")) {
-                current.vertexOffset = *vertexOffset;
-            } else if (auto vertexCount = readUintField(line, "vertex-count ")) {
-                current.vertexCount = *vertexCount;
-            } else if (auto indexOffset = readUintField(line, "index-offset ")) {
-                current.indexOffset = *indexOffset;
-            } else if (auto indexCount = readUintField(line, "index-count ")) {
-                current.indexCount = *indexCount;
+            inEntry = true;
+        } else if (inEntry && section == GeoSection::Attachments) {
+            if (auto bone = readQuotedField(line, "bone ")) {
+                attachment.bone = *bone;
+            } else if (readFloatsField(line, "position ", &attachment.position.x, 3)) {
+            } else if (readFloatsField(line, "rotation ", &attachment.rotationDeg.x, 3)) {
+            } else if (readFloatsField(line, "scale ", &attachment.scale, 1)) {
             } else if (startsWith(line, ")")) {
-                asset.primitives.push_back(current);
-                current = {};
-                inPrimitive = false;
+                flushEntry();
             }
+        } else if (inEntry) {
+            if (auto material = readQuotedField(line, "material ")) {
+                primitive.material = *material;
+            } else if (auto vertexOffset = readUintField(line, "vertex-offset ")) {
+                primitive.vertexOffset = *vertexOffset;
+            } else if (auto vertexCount = readUintField(line, "vertex-count ")) {
+                primitive.vertexCount = *vertexCount;
+            } else if (auto indexOffset = readUintField(line, "index-offset ")) {
+                primitive.indexOffset = *indexOffset;
+            } else if (auto indexCount = readUintField(line, "index-count ")) {
+                primitive.indexCount = *indexCount;
+            } else if (startsWith(line, ")")) {
+                flushEntry();
+            }
+        } else if (startsWith(line, ")") && section != GeoSection::Header) {
+            section = GeoSection::Header;
         }
 
         if (lineEnd == std::string_view::npos) {
@@ -150,11 +227,93 @@ bool parseGeoAsset(std::string_view source, GeoAsset& asset) {
         lineStart = lineEnd + 1;
     }
 
-    if (inPrimitive) {
-        asset.primitives.push_back(current);
-    }
+    flushEntry();
 
     return !asset.primitives.empty();
+}
+
+std::string serializeGeoAsset(const GeoAsset& asset) {
+    std::ostringstream out;
+    out << "(geo\n";
+    if (asset.verticesFrom.empty()) {
+        out << "  (vertices implicit)\n";
+    } else {
+        out << "  (vertices \"" << asset.verticesFrom << "\")\n";
+    }
+    if (asset.weightsImplicit) {
+        out << "  (weights implicit)\n";
+    }
+    if (!asset.skeletonId.empty()) {
+        out << "  (skeleton \"" << asset.skeletonId << "\")\n";
+    }
+    if (asset.view.present) {
+        out << "  (view\n";
+        out << "   position " << asset.view.position.x << ' ' << asset.view.position.y << ' '
+            << asset.view.position.z << "\n";
+        out << "   rotation " << asset.view.rotationDeg.x << ' ' << asset.view.rotationDeg.y << ' '
+            << asset.view.rotationDeg.z << "\n";
+        out << "   scale " << asset.view.scale.x << ' ' << asset.view.scale.y << ' '
+            << asset.view.scale.z << "\n";
+        out << "  )\n";
+    }
+    if (!asset.attachments.empty()) {
+        out << "  (attachments\n";
+        out << "   (\n";
+        for (const GeoAttachment& attachment : asset.attachments) {
+            out << "    (name \"" << attachment.name << "\"\n";
+            out << "     bone \"" << attachment.bone << "\"\n";
+            out << "     position " << attachment.position.x << ' ' << attachment.position.y << ' '
+                << attachment.position.z << "\n";
+            out << "     rotation " << attachment.rotationDeg.x << ' ' << attachment.rotationDeg.y
+                << ' ' << attachment.rotationDeg.z << "\n";
+            out << "     scale " << attachment.scale << "\n";
+            out << "    )\n";
+        }
+        out << "   ))\n";
+    }
+    out << "  (primitives\n";
+    out << "   (\n";
+    for (const GeoPrimitive& primitive : asset.primitives) {
+        out << "    (name \"" << primitive.name << "\"\n";
+        out << "     material \"" << primitive.material << "\"\n";
+        out << "     vertex-offset " << primitive.vertexOffset << "\n";
+        out << "     vertex-count " << primitive.vertexCount << "\n";
+        out << "     index-offset " << primitive.indexOffset << "\n";
+        out << "     index-count " << primitive.indexCount << "\n";
+        out << "    )\n";
+    }
+    out << "   ))\n";
+    out << ")\n";
+    return out.str();
+}
+
+const GeoAttachment* findGeoAttachment(const GeoAsset& asset, std::string_view name) {
+    for (const GeoAttachment& attachment : asset.attachments) {
+        if (attachment.name == name) {
+            return &attachment;
+        }
+    }
+    return nullptr;
+}
+
+Transform geoAttachmentTransform(const GeoAttachment& attachment) {
+    Transform transform{};
+    transform.translation = attachment.position;
+    transform.rotation = QuaternionFromEuler(
+        attachment.rotationDeg.x * DEG2RAD,
+        attachment.rotationDeg.y * DEG2RAD,
+        attachment.rotationDeg.z * DEG2RAD);
+    transform.scale = {attachment.scale, attachment.scale, attachment.scale};
+    return transform;
+}
+
+Transform geoViewTransform(const GeoView& view) {
+    Transform transform{};
+    transform.translation = view.position;
+    transform.rotation = QuaternionFromEuler(
+        view.rotationDeg.x * DEG2RAD, view.rotationDeg.y * DEG2RAD, view.rotationDeg.z * DEG2RAD);
+    transform.scale = view.scale;
+    return transform;
 }
 
 bool loadVertBuffer(std::span<const std::byte> data, VertBuffer& buffer) {
@@ -317,6 +476,14 @@ Mesh buildPrimitiveMesh(
             mesh.vertexCount * 2 * sizeof(float));
     }
 
+    if (buffer.colors.size() >= primitive.vertexOffset + primitive.vertexCount) {
+        mesh.colors = static_cast<unsigned char*>(RL_MALLOC(mesh.vertexCount * 4 * sizeof(unsigned char)));
+        std::memcpy(
+            mesh.colors,
+            buffer.colors.data() + primitive.vertexOffset,
+            mesh.vertexCount * 4 * sizeof(unsigned char));
+    }
+
     mesh.indices = static_cast<unsigned short*>(RL_MALLOC(primitive.indexCount * sizeof(unsigned short)));
     for (std::size_t index = 0; index < primitive.indexCount; ++index) {
         const std::uint32_t sourceIndex = buffer.indices[primitive.indexOffset + index];
@@ -342,7 +509,7 @@ Mesh buildPrimitiveMesh(
         }
     }
 
-    UploadMesh(&mesh, false);
+    uploadMeshIfGpu(&mesh, false);
     return mesh;
 }
 

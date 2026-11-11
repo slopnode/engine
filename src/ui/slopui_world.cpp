@@ -12,13 +12,17 @@
 
 namespace slopengine {
 
-void installSlopUiTheme(flecs::world& world, AssetStore& assets, s7_scheme* scheme) {
+void installSlopUiTheme(flecs::world& world, AssetStore& assets, s7_scheme* scheme, std::string_view themeId) {
     world.component<SlopUiTheme>();
     world.component<SlopUiFonts>();
     world.component<SlopUiThemeReload>();
-    SlopUiTheme theme = loadSlopUiTheme(assets, scheme);
+    world.component<SlopUiThemeCatalog>();
+    world.set<SlopUiThemeCatalog>({listSlopUiThemes(assets, scheme)});
+    SlopUiTheme theme = loadSlopUiTheme(assets, scheme, false, themeId);
     SlopUiFonts fonts{};
-    applySlopUiTheme(theme, assets, fonts);
+    if (ImGui::GetCurrentContext() != nullptr) {
+        applySlopUiTheme(theme, assets, fonts);
+    }
     world.set<SlopUiTheme>(std::move(theme));
     world.set<SlopUiFonts>(fonts);
     if (!world.has<SlopUiThemeReload>()) {

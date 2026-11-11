@@ -21,7 +21,8 @@ void runPvsBuildTests() {
         const PvsFile pvs = buildPvs(tree, &analysis.exteriorEmpty);
         CHECK(pvs.leafCount == static_cast<int>(tree.leaves.size()));
         CHECK(pvs.wordsPerRow > 0);
-        CHECK_FALSE(pvs.bits.empty());
+        CHECK(pvs.rowCount() > 0);
+        CHECK(pvs.columnCount <= pvs.leafCount);
 
         const std::int32_t north = pointLeaf(tree, {0.0f, 1.0f, -3.0f});
         const std::int32_t south = pointLeaf(tree, {0.0f, 1.0f, 3.0f});
@@ -115,10 +116,69 @@ void runPvsBuildTests() {
             auto loaded = readPvsFile(path);
             CHECK(loaded.has_value());
             CHECK(loaded->leafCount == pvs.leafCount);
+            CHECK(loaded->columnCount == pvs.columnCount);
             CHECK(loaded->wordsPerRow == pvs.wordsPerRow);
-            CHECK(loaded->bits == pvs.bits);
+            CHECK(loaded->leafRow == pvs.leafRow);
+            CHECK(loaded->leafColumn == pvs.leafColumn);
+            CHECK(loaded->rows == pvs.rows);
             std::filesystem::remove(path);
         }
+    }
+
+    {
+        DensePvs dense;
+        dense.leafCount = 40;
+        dense.wordsPerRow = 2;
+        dense.bits.assign(80, 0u);
+        const auto set = [&](int a, int b) {
+            dense.bits[static_cast<std::size_t>(a * 2 + (b >> 5))] |= 1u << (b & 31);
+        };
+        for (int a : {3, 7, 35}) {
+            for (int b : {3, 7, 35}) {
+                set(a, b);
+            }
+        }
+        set(20, 20);
+        set(20, 35);
+        set(35, 20);
+
+        const PvsFile pvs = compactPvs(dense);
+        CHECK(pvs.leafCount == 40);
+        CHECK(pvs.columnCount == 4);
+        CHECK(pvs.wordsPerRow == 1);
+        CHECK(pvs.rowCount() == 3);
+        CHECK(pvs.leafRow[3] == pvs.leafRow[7]);
+        CHECK(pvs.leafRow[0] == -1);
+        CHECK(pvs.leafColumn[0] == -1);
+        for (int a = 0; a < 40; ++a) {
+            for (int b = 0; b < 40; ++b) {
+                const bool expected =
+                    (dense.bits[static_cast<std::size_t>(a * 2 + (b >> 5))] & (1u << (b & 31))) != 0u;
+                CHECK(pvsCanSee(pvs, a, b) == expected);
+            }
+        }
+        CHECK(pvsVisibleCount(pvs, 35) == 4);
+        CHECK(pvsVisibleCount(pvs, 0) == 0);
+        CHECK(pvsCanSee(pvs, -1, 3));
+        CHECK(pvsCanSee(pvs, 3, 40));
+
+        std::vector<std::byte> v1;
+        const auto append = [&](std::uint32_t value) {
+            const auto* bytes = reinterpret_cast<const std::byte*>(&value);
+            v1.insert(v1.end(), bytes, bytes + sizeof(value));
+        };
+        append(kPvsMagic);
+        append(kPvsDenseVersion);
+        append(40);
+        append(2);
+        for (std::uint32_t word : dense.bits) {
+            append(word);
+        }
+        auto converted = readPvsBytes(v1);
+        CHECK(converted.has_value());
+        CHECK(converted->leafRow == pvs.leafRow);
+        CHECK(converted->leafColumn == pvs.leafColumn);
+        CHECK(converted->rows == pvs.rows);
     }
 }
 
