@@ -1,5 +1,6 @@
 #include "map/light_probes.hpp"
 
+#include "map/bsp_analyze.hpp"
 #include "map/bsp_ray.hpp"
 #include "map/light_occlusion.hpp"
 #include "map/uv_math.hpp"
@@ -101,26 +102,39 @@ std::vector<std::uint8_t> floodMainInteriorLeaves(const BspTree& tree) {
         unionLeafRoots(parent, rank, portal.leafA, portal.leafB);
     }
 
-    std::unordered_map<int, float> openVolumeByRoot;
-    for (int i = 0; i < leafCount; ++i) {
-        const BspLeaf& leaf = tree.leaves[static_cast<std::size_t>(i)];
-        if (!leafIsOpen(leaf.contents)) {
-            continue;
-        }
-        const float volume =
-            std::max(leaf.maxs.x - leaf.mins.x, 0.0f) *
-            std::max(leaf.maxs.y - leaf.mins.y, 0.0f) *
-            std::max(leaf.maxs.z - leaf.mins.z, 0.0f);
-        openVolumeByRoot[findLeafRoot(parent, i)] += volume;
-    }
+    std::vector<std::uint8_t> exteriorEmpty;
+    floodExteriorLeaves(tree, exteriorEmpty);
 
-    int mainRoot = -1;
-    float mainVolume = -1.0f;
-    for (const auto& [root, volume] : openVolumeByRoot) {
-        if (volume > mainVolume) {
-            mainVolume = volume;
-            mainRoot = root;
+    const auto pickMainRoot = [&](bool skipExterior) {
+        std::unordered_map<int, float> openVolumeByRoot;
+        for (int i = 0; i < leafCount; ++i) {
+            const BspLeaf& leaf = tree.leaves[static_cast<std::size_t>(i)];
+            if (!leafIsOpen(leaf.contents)) {
+                continue;
+            }
+            if (skipExterior && exteriorEmpty[static_cast<std::size_t>(i)] != 0) {
+                continue;
+            }
+            const float volume =
+                std::max(leaf.maxs.x - leaf.mins.x, 0.0f) *
+                std::max(leaf.maxs.y - leaf.mins.y, 0.0f) *
+                std::max(leaf.maxs.z - leaf.mins.z, 0.0f);
+            openVolumeByRoot[findLeafRoot(parent, i)] += volume;
         }
+        int root = -1;
+        float bestVolume = -1.0f;
+        for (const auto& [candidate, volume] : openVolumeByRoot) {
+            if (volume > bestVolume) {
+                bestVolume = volume;
+                root = candidate;
+            }
+        }
+        return root;
+    };
+
+    int mainRoot = pickMainRoot(true);
+    if (mainRoot < 0) {
+        mainRoot = pickMainRoot(false);
     }
     if (mainRoot < 0) {
         return reachable;

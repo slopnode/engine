@@ -95,7 +95,7 @@ Thing templates are the props, pickups, and actors that map authors can place fr
         (kind . actor)
         (sprite . "monsters/poss")
         (anim . "walk")
-        (anim-loop . #t)
+        (anim-loop . \#t)
         (motor (radius 0.3) (height 1.0) (speed 3.5) (gravity 9.81) (hull capsule) (move slide))
         (tags "actor" "team:hell")
         (health . 20)
@@ -104,7 +104,7 @@ Thing templates are the props, pickups, and actors that map authors can place fr
         (behavior . "idle")
         (behaviors
           (ranged (cooldown 2.2) (range 24) (anim "attack") (recipe "hitscan")))
-        (sight (range 28) (fov 160) (see-tags "player") (ignore-tags "team:hell") (enabled #t))))))
+        (sight (range 28) (fov 160) (see-tags "player") (ignore-tags "team:hell") (enabled \#t))))))
 </code></pre>
 
 # Nav Profiles {#nav-profiles}
@@ -140,7 +140,7 @@ The engine loads `data/items.s7` into the script environment but does not interp
 
 <pre><code class="language-scheme">(define *item-catalog*
   (list
-    (cons "key-blue" '((unique . #t)))
+    (cons "key-blue" '((unique . \#t)))
     (cons "shells" '((stack . 50)))))
 
 (define (item-def id)
@@ -213,7 +213,7 @@ Net state declares the game state the engine stores for each player, for the ses
 
 Player fields not marked `travel` go back to their defaults on every map load. Session fields and travel fields keep their values until a script changes them or calls `net-reset!`.
 
-`*net-events*` declares one-shot events such as sounds and effects. Each has typed arguments, an audience, a reliable flag and a predict flag. Scripts raise them with `net-event!` and handle them in `on-event-NAME` procedures. An event with `(predict \#t)` can also be raised by a client's `predict` hook for its own player, see @ref networking. `*net-extension*` can give mods an `(events (count n) (bytes n))` budget.
+`*net-events*` declares one-shot events such as sounds and effects. Each has typed arguments, an audience, a reliable flag and a predict flag. Scripts raise them with `net-event!` and handle them in `on-event-NAME` procedures. An event with `(predict \#t)` can also be raised by a client's `predict` hook for its own player, see @ref net-predicted-events. `*net-extension*` can give mods an `(events (count n) (bytes n))` budget.
 
 <pre><code class="language-scheme">(define *net-events*
   '((sound-3d (args (path (string 64))) (to (near 80)))
