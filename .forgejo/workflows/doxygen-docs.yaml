@@ -5,7 +5,7 @@ on:
 
 jobs:
   docs:
-    runs-on: alma10
+    runs-on: linux
     container:
       image: git.slopnode.net/containers/engine-linux-builder:latest
     steps:
